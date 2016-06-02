@@ -36,9 +36,9 @@ def read_and_decode(filename_queue):
     image_rgb = tf.reshape(image_rgb, tf.pack([height, width, depth_rgb]))
     image_depth = tf.reshape(image_depth, tf.pack([height, width, depth_depth]))
 
-    labels = [features['tx'], features['ty'], features['tz'],
+    labels = tf.pack([features['tx'], features['ty'], features['tz'],
               features['qx'], features['qy'], features['qz'],
-              features['qw']]
+              features['qw']])
 
     return image_rgb, image_depth, labels
 
@@ -53,7 +53,5 @@ with tf.Session() as sess:
     tf.train.start_queue_runners(sess=sess)
 
     for index in range(700):
-        print(index)
         rgb_img, depth_img, label = sess.run([image_rgb, image_depth, labels])
-        print (label)
 

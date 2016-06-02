@@ -1,6 +1,7 @@
 import tensorflow as tf
 import os
 import numpy as np
+import bisect
 
 
 def _int64_feature(value):
@@ -13,6 +14,11 @@ def _float_feature(value):
 
 def _bytes_feature(value):
     return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
+
+
+def _find_label(groundtruth, timestamp):
+    i = bisect.bisect_left(groundtruth, timestamp)
+    print(i)
 
 
 dataset = "rgbd_dataset_freiburg1_xyz"
@@ -57,6 +63,7 @@ with tf.Session() as sess:
         img_rgb_raw = image_rgb.eval().tostring()
         img_depth_raw = image_depth.eval().tostring()
 
+        _find_label(groundtruth[:, 0], rgb[0, index])
         label = labels[index]
 
         example = tf.train.Example(features=tf.train.Features(feature={
