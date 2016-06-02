@@ -17,8 +17,7 @@ def _bytes_feature(value):
 
 
 def _find_label(groundtruth, timestamp):
-    i = bisect.bisect_left(groundtruth, timestamp)
-    print(i)
+    return bisect.bisect_left(groundtruth, timestamp)
 
 
 dataset = "rgbd_dataset_freiburg1_xyz"
@@ -63,8 +62,7 @@ with tf.Session() as sess:
         img_rgb_raw = image_rgb.eval().tostring()
         img_depth_raw = image_depth.eval().tostring()
 
-        _find_label(groundtruth[:, 0], rgb[0, index])
-        label = labels[index]
+        label = labels[_find_label(groundtruth[:, 0], rgb[index, 0])]
 
         example = tf.train.Example(features=tf.train.Features(feature={
             'height': _int64_feature(480),

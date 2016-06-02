@@ -1,5 +1,4 @@
 import tensorflow as tf
-import numpy as np
 
 
 def read_and_decode(filename_queue):
