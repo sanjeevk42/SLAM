@@ -45,8 +45,8 @@ groundtruth = np.loadtxt(dataset+"/groundtruth.txt", dtype="str",  unpack=False)
 labels = groundtruth[:, 1:]
 
 # drop every nth element out of list
-n = 3
-x = np.delete(rgbd, np.arange(0, rgbd.size, 3))
+# n = 3
+# rgbd = np.delete(rgbd, np.arange(0, rgbd.size, 3))
 
 # FIFO queue of filenames
 filename_queue_rgb = tf.train.string_input_producer(dataset + "/" + tf.convert_to_tensor(rgbd[:, 1]))
