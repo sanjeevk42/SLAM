@@ -7,14 +7,35 @@ import scipy.ndimage
 def _find_label(groundtruth, timestamp):
     return bisect.bisect_left(groundtruth, timestamp)
 
+
 def _relative_position(groundtruth):
-    q_0 = groundtruth[3]
-    q_1 = groundtruth[4]
-    q_2 = groundtruth[5]
-    q_3 = groundtruth[6]
-    roll = np.arctan2(2*(q_0*q_1 + q_2*q_3), 1-2*(np.square(q_1) + np.square(q_2)))
-    pitch = np.arcsin(2*(q_0*q_2 - q_3*q_1))
-    yaw = np.arctan2(2*(q_0*q_3 + q_1*q_2), 1-2*(np.square(q_2) + np.square(q_3)))
+    q = groundtruth[3:7]
+    phi = np.arctan2(2*(q[0]*q[1] + q[2]*q[3]), 1-2*(np.square(q[1]) + np.square(q[2])))
+    theta = np.arcsin(2*(q[0]*q[2] - q[3]*q[1]))
+    psi = np.arctan2(2*(q[0]*q[3] + q[1]*q[2]), 1-2*(np.square(q[2]) + np.square(q[3])))
+
+    rot_mat = np.zeros((3, 3))
+    rot_mat[0, 0] = np.cos(theta)*np.cos(phi)
+    rot_mat[1, 0] = np.cos(theta)*np.sin(phi)
+    rot_mat[2, 0] = -np.sin(theta)
+
+    rot_mat[0, 1] = np.sin(psi)*np.sin(theta)*np.cos(phi) - np.cos(psi)*np.sin(phi)
+    rot_mat[1, 1] = np.sin(psi)*np.sin(theta)*np.sin(phi) + np.cos(psi)*np.cos(phi)
+    rot_mat[2, 1] = np.sin(psi)*np.cos(theta)
+
+    rot_mat[0, 2] = np.cos(psi)*np.sin(theta)*np.cos(phi) + np.sin(psi)*np.sin(phi)
+    rot_mat[1, 2] = np.cos(psi)*np.sin(theta)*np.sin(phi) - np.sin(psi)*np.cos(phi)
+    rot_mat[2, 2] = np.cos(psi)*np.cos(theta)
+
+    print(rot_mat)
+
+    w_abs = np.arccos((np.trace(rot_mat)-1)/2)
+    w = np.zeros(3)
+    w[0] = 1/(2*np.sin(w_abs)) * (rot_mat[2, 1]-rot_mat[1, 2]) * w_abs
+    w[1] = 1/(2*np.sin(w_abs)) * (rot_mat[0, 2]-rot_mat[2, 0]) * w_abs
+    w[2] = 1/(2*np.sin(w_abs)) * (rot_mat[1, 0]-rot_mat[0, 1]) * w_abs
+    return w
+
 
 dataset = "rgbd_dataset_freiburg1_xyz"
 
@@ -64,7 +85,9 @@ with tf.Session() as sess:
         # scale down image
         img = scipy.ndimage.zoom(img, (0.5, 0.5, 1))
 
-        label = labels[_find_label(groundtruth[:, 0], rgbd[index, 0])]
+        label = labels[_find_label(groundtruth[:, 0], rgbd[index, 0])].astype(np.float)
+
+        print(_relative_position(label))
 
         print(index)
 
