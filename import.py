@@ -7,6 +7,15 @@ import scipy.ndimage
 def _find_label(groundtruth, timestamp):
     return bisect.bisect_left(groundtruth, timestamp)
 
+def _relative_position(groundtruth):
+    q_0 = groundtruth[3]
+    q_1 = groundtruth[4]
+    q_2 = groundtruth[5]
+    q_3 = groundtruth[6]
+    roll = np.arctan2(2*(q_0*q_1 + q_2*q_3), 1-2*(np.square(q_1) + np.square(q_2)))
+    pitch = np.arcsin(2*(q_0*q_2 - q_3*q_1))
+    yaw = np.arctan2(2*(q_0*q_3 + q_1*q_2), 1-2*(np.square(q_2) + np.square(q_3)))
+
 dataset = "rgbd_dataset_freiburg1_xyz"
 
 rgbd = np.loadtxt(dataset+"/associated_data.txt", dtype="str",  unpack=False)
