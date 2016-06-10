@@ -53,7 +53,7 @@ def _image_preprocessing(image_rgb, image_depth):
     img = np.concatenate((img_rgb, img_depth), axis=2)
 
     # scale down image
-    return scipy.ndimage.zoom(img, (0.5, 0.5, 1))
+    return scipy.ndimage.zoom(img, (224.0/480, 224.0/640, 1))
 
 
 def _initialise_dataset(dataset, reader, path):
