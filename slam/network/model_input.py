@@ -65,13 +65,18 @@ class ModelInputProvider:
 
         # compute absolute position
         abs_pos = np.zeros((self.dataset_size, 6))
+        rel_pos = np.zeros((self.dataset_size, 6))
         for i in range(self.dataset_size):
             abs_pos[i] = _absolute_position(groundtruth[:, 1:][_find_label(groundtruth[:, 0], rgbd[i, 0])].astype(np.float))
+            if i > 0:
+                rel_pos[i] = abs_pos[i] - abs_pos[i-1]
+            else:
+                rel_pos[i] = np.zeros(6)
 
         rgb_images = self.DATA_DIR + "/" + tf.convert_to_tensor(rgbd[:, 1])
         depth_images = self.DATA_DIR + "/" + tf.convert_to_tensor(rgbd[:, 3])
 
-        input_queue = tf.train.slice_input_producer([rgb_images, depth_images, abs_pos], shuffle=False)
+        input_queue = tf.train.slice_input_producer([rgb_images, depth_images, rel_pos], shuffle=False)
 
         image, outparams = self.read_rgbd_data(input_queue)
         images, outparam_batch = tf.train.batch([image, outparams], batch_size=self.batch_size,
