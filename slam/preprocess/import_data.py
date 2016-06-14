@@ -118,38 +118,38 @@ sequence_length = sum(num_examples) - len(datasets)
 images = tf.placeholder(tf.float32, [None, 224, 224, 4])
 labels = tf.placeholder(tf.float32, [6])
 
-# CNN
-net = VGG_ILSVRC_16_layers_4channel_input({'input': images})
-
-# output of the last layer of the CNN
-output_VGG = net.layers['fc8-conv']
-# placeholder for sequence of feature vectors
-output_list = tf.placeholder(tf.float32, [sequence_length, 1000])
-
-# sequence of feature vectors
-feature_sequence = tf.split(0, sequence_length, output_list)
-
-# define LSTM
-lstm_size = 4
-lstm = tf.nn.rnn_cell.BasicLSTMCell(lstm_size)
-# initial state of the LSTM
-# init_state = tf.placeholder("float", [None, lstm.state_size])
-init_state = lstm.zero_state(1, tf.float32)
-# output of LSTM
-lstm_output = tf.nn.rnn(lstm, feature_sequence, initial_state=init_state)
-
-# output layer, W: weights, B: biases, initialised randomly
-W = tf.Variable(tf.random_normal([lstm_size, 6], stddev=0.01))
-B = tf.Variable(tf.random_normal([6], stddev=0.01))
-
-# output (L[-1] -> last item of a list)
-pred = tf.matmul(lstm_output[-1], W) + B
-
-# loss function
-loss = tf.square(pred-labels)
-
-# training operation
-train_op = tf.train.RMSPropOptimizer(0.001, 0.9).minimize(loss)
+# # CNN
+# net = VGG_ILSVRC_16_layers_4channel_input({'input': images})
+#
+# # output of the last layer of the CNN
+# output_VGG = net.layers['fc8-conv']
+# # placeholder for sequence of feature vectors
+# output_list = tf.placeholder(tf.float32, [sequence_length, 1000])
+#
+# # sequence of feature vectors
+# feature_sequence = tf.split(0, sequence_length, output_list)
+#
+# # define LSTM
+# lstm_size = 4
+# lstm = tf.nn.rnn_cell.BasicLSTMCell(lstm_size)
+# # initial state of the LSTM
+# # init_state = tf.placeholder("float", [None, lstm.state_size])
+# init_state = lstm.zero_state(1, tf.float32)
+# # output of LSTM
+# lstm_output = tf.nn.rnn(lstm, feature_sequence, initial_state=init_state)
+#
+# # output layer, W: weights, B: biases, initialised randomly
+# W = tf.Variable(tf.random_normal([lstm_size, 6], stddev=0.01))
+# B = tf.Variable(tf.random_normal([6], stddev=0.01))
+#
+# # output (L[-1] -> last item of a list)
+# pred = tf.matmul(lstm_output[-1], W) + B
+#
+# # loss function
+# loss = tf.square(pred-labels)
+#
+# # training operation
+# train_op = tf.train.RMSPropOptimizer(0.001, 0.9).minimize(loss)
 
 # initialisation
 init_op = tf.initialize_all_variables()
@@ -159,8 +159,8 @@ with tf.Session() as sess:
     coord = tf.train.Coordinator()
     threads = tf.train.start_queue_runners(coord=coord)
 
-    # load weights into CNN
-    net.load('VGG_16_4ch.npy', sess)
+    # # load weights into CNN
+    # net.load('VGG_16_4ch.npy', sess)
 
     for dataset_index in range(len(datasets)):
 
@@ -177,9 +177,9 @@ with tf.Session() as sess:
                 print (rel_pos)
                 feed = {images: img, labels: rel_pos}
 
-                np_loss, np_pred, _ = sess.run([loss, pred, train_op], feed_dict=feed)
-                if index % 10 == 0:
-                   print('Iteration: ', index, np_loss)
+                # np_loss, np_pred, _ = sess.run([loss, pred, train_op], feed_dict=feed)
+                # if index % 10 == 0:
+                #    print('Iteration: ', index, np_loss)
 
     coord.request_stop()
     coord.join(threads)
