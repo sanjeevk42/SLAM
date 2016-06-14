@@ -12,30 +12,30 @@ def _absolute_position(groundtruth):
     q = groundtruth[3:7]
 
     # compute euler angles
-    phi = np.arctan2(2*(q[0]*q[1] + q[2]*q[3]), 1-2*(np.square(q[1]) + np.square(q[2])))
-    theta = np.arcsin(2*(q[0]*q[2] - q[3]*q[1]))
-    psi = np.arctan2(2*(q[0]*q[3] + q[1]*q[2]), 1-2*(np.square(q[2]) + np.square(q[3])))
+    phi = np.arctan2(2 * (q[0] * q[1] + q[2] * q[3]), 1 - 2 * (np.square(q[1]) + np.square(q[2])))
+    theta = np.arcsin(2 * (q[0] * q[2] - q[3] * q[1]))
+    psi = np.arctan2(2 * (q[0] * q[3] + q[1] * q[2]), 1 - 2 * (np.square(q[2]) + np.square(q[3])))
 
     # compute rotation matrix
     rot_mat = np.zeros((3, 3))
-    rot_mat[0, 0] = np.cos(theta)*np.cos(phi)
-    rot_mat[1, 0] = np.cos(theta)*np.sin(phi)
+    rot_mat[0, 0] = np.cos(theta) * np.cos(phi)
+    rot_mat[1, 0] = np.cos(theta) * np.sin(phi)
     rot_mat[2, 0] = -np.sin(theta)
 
-    rot_mat[0, 1] = np.sin(psi)*np.sin(theta)*np.cos(phi) - np.cos(psi)*np.sin(phi)
-    rot_mat[1, 1] = np.sin(psi)*np.sin(theta)*np.sin(phi) + np.cos(psi)*np.cos(phi)
-    rot_mat[2, 1] = np.sin(psi)*np.cos(theta)
+    rot_mat[0, 1] = np.sin(psi) * np.sin(theta) * np.cos(phi) - np.cos(psi) * np.sin(phi)
+    rot_mat[1, 1] = np.sin(psi) * np.sin(theta) * np.sin(phi) + np.cos(psi) * np.cos(phi)
+    rot_mat[2, 1] = np.sin(psi) * np.cos(theta)
 
-    rot_mat[0, 2] = np.cos(psi)*np.sin(theta)*np.cos(phi) + np.sin(psi)*np.sin(phi)
-    rot_mat[1, 2] = np.cos(psi)*np.sin(theta)*np.sin(phi) - np.sin(psi)*np.cos(phi)
-    rot_mat[2, 2] = np.cos(psi)*np.cos(theta)
+    rot_mat[0, 2] = np.cos(psi) * np.sin(theta) * np.cos(phi) + np.sin(psi) * np.sin(phi)
+    rot_mat[1, 2] = np.cos(psi) * np.sin(theta) * np.sin(phi) - np.sin(psi) * np.cos(phi)
+    rot_mat[2, 2] = np.cos(psi) * np.cos(theta)
 
     # compute angular velocities
-    w_abs = np.arccos((np.trace(rot_mat)-1)/2)
+    w_abs = np.arccos((np.trace(rot_mat) - 1) / 2)
     w = np.zeros(3)
-    w[0] = 1/(2*np.sin(w_abs)) * (rot_mat[2, 1]-rot_mat[1, 2]) * w_abs
-    w[1] = 1/(2*np.sin(w_abs)) * (rot_mat[0, 2]-rot_mat[2, 0]) * w_abs
-    w[2] = 1/(2*np.sin(w_abs)) * (rot_mat[1, 0]-rot_mat[0, 1]) * w_abs
+    w[0] = 1 / (2 * np.sin(w_abs)) * (rot_mat[2, 1] - rot_mat[1, 2]) * w_abs
+    w[1] = 1 / (2 * np.sin(w_abs)) * (rot_mat[0, 2] - rot_mat[2, 0]) * w_abs
+    w[2] = 1 / (2 * np.sin(w_abs)) * (rot_mat[1, 0] - rot_mat[0, 1]) * w_abs
 
     return np.concatenate((x, w), 0)
 
@@ -46,7 +46,7 @@ def _find_label(groundtruth, timestamp):
 
 class ModelInputProvider:
     
-    DATA_DIR = '/home/aw/PycharmProjects/rgbd_dataset_freiburg1_rpy'
+    DATA_DIR = '/home/sanjeev/Downloads/rgbd_dataset_freiburg1_rpy'
     
     def __init__(self, batch_size):
         self.batch_size = batch_size
@@ -59,17 +59,17 @@ class ModelInputProvider:
     outparam_batch: Labels. 1D tensor of [batch_size] size.
     """    
     def get_training_batch(self):
-        rgbd = np.loadtxt(self.DATA_DIR+"/associated_data.txt", dtype="str",  unpack=False)
-        groundtruth = np.loadtxt(self.DATA_DIR+"/groundtruth.txt", dtype="str",  unpack=False)
+        rgbd = np.loadtxt(self.DATA_DIR + "/associated_data.txt", dtype="str", unpack=False)
+        groundtruth = np.loadtxt(self.DATA_DIR + "/groundtruth.txt", dtype="str", unpack=False)
         self.dataset_size = rgbd.shape[0]
 
         # compute absolute position
         abs_pos = np.zeros((self.dataset_size, 6))
         rel_pos = np.zeros((self.dataset_size, 6))
         for i in range(self.dataset_size):
-            abs_pos[i] = _absolute_position(groundtruth[:, 1:][_find_label(groundtruth[:, 0], rgbd[i, 0])].astype(np.float))
+            abs_pos[i] = _absolute_position(groundtruth[:, 1:][_find_label(groundtruth[:, 0], rgbd[i, 0])].astype(np.float32))
             if i > 0:
-                rel_pos[i] = abs_pos[i] - abs_pos[i-1]
+                rel_pos[i] = abs_pos[i] - abs_pos[i - 1]
             else:
                 rel_pos[i] = np.zeros(6)
 
@@ -79,6 +79,7 @@ class ModelInputProvider:
         input_queue = tf.train.slice_input_producer([rgb_images, depth_images, rel_pos], shuffle=False)
 
         image, outparams = self.read_rgbd_data(input_queue)
+        
         images, outparam_batch = tf.train.batch([image, outparams], batch_size=self.batch_size,
                         num_threads=20, capacity=4 * self.batch_size)
         return images, outparam_batch
@@ -116,5 +117,6 @@ class ModelInputProvider:
         image = tf.concat(2, (png_rgb, png_depth))
 
         abs_pos = input_queue[2]
+        abs_pos = tf.reshape(abs_pos, [1, 1, 6])
 
-        return image, abs_pos
+        return tf.cast(image, tf.float32), tf.cast(abs_pos, tf.float32)

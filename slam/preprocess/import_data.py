@@ -1,9 +1,8 @@
-import tensorflow as tf
-import numpy as np
 import bisect
 import scipy.ndimage
 
-from graph import VGG_ILSVRC_16_layers_4channel_input
+import numpy as np
+import tensorflow as tf
 
 
 def _find_label(groundtruth, timestamp):
