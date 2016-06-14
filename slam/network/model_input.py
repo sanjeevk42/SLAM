@@ -99,8 +99,8 @@ class ModelInputProvider:
         value_depth = tf.read_file(input_queue[1])
 
         # Decoder
-        png_rgb = tf.image.decode_png(value_rgb)
-        png_depth = tf.image.decode_png(value_depth)
+        png_rgb = tf.image.decode_png(value_rgb, channels=3)
+        png_depth = tf.image.decode_png(value_depth, channels=1)
 
         # Reshape
         png_rgb = tf.reshape(png_rgb, [width_original, height_original, 3])
