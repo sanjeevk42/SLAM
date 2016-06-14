@@ -4,7 +4,6 @@ from os.path import isfile
 import tensorflow as tf
 import numpy as np
 
-import scipy.ndimage
 import bisect
 
 
@@ -47,7 +46,7 @@ def _find_label(groundtruth, timestamp):
 
 class ModelInputProvider:
     
-    DATA_DIR = ''
+    DATA_DIR = '/home/aw/PycharmProjects/rgbd_dataset_freiburg1_rpy'
     
     def __init__(self, batch_size):
         self.batch_size = batch_size
@@ -69,10 +68,12 @@ class ModelInputProvider:
         for i in range(self.dataset_size):
             abs_pos[i] = _absolute_position(groundtruth[:, 1:][_find_label(groundtruth[:, 0], rgbd[i, 0])].astype(np.float))
 
-        filename_queue_rgb = tf.train.string_input_producer(self.DATA_DIR + "/" + tf.convert_to_tensor(rgbd[:, 1]), shuffle=False)
-        filename_queue_depth = tf.train.string_input_producer(self.DATA_DIR + "/" + tf.convert_to_tensor(rgbd[:, 3]), shuffle=False)
+        rgb_images = self.DATA_DIR + "/" + tf.convert_to_tensor(rgbd[:, 1])
+        depth_images = self.DATA_DIR + "/" + tf.convert_to_tensor(rgbd[:, 3])
 
-        image, outparams = self.read_rgbd_data(filename_queue_rgb, filename_queue_depth, abs_pos)
+        input_queue = tf.train.slice_input_producer([rgb_images, depth_images, abs_pos], shuffle=False)
+
+        image, outparams = self.read_rgbd_data(input_queue)
         images, outparam_batch = tf.train.batch([image, outparams], batch_size=self.batch_size,
                         num_threads=20, capacity=4 * self.batch_size)
         return images, outparam_batch
@@ -80,30 +81,35 @@ class ModelInputProvider:
     """
      Returns the rgbd tensor and output parameters tensor after reading from file name queue.
     """
-    def read_rgbd_data(self, filename_queue_rgb, filename_queue_depth, abs_pos):
-        reader = tf.WholeFileReader()
+    def read_rgbd_data(self, input_queue):
+        # original input size
+        width_original = 480
+        height_original = 640
 
-        key, value_rgb = reader.read(filename_queue_rgb)
-        _, value_depth = reader.read(filename_queue_depth)
+        # input size
+        width = 224
+        height = 224
 
-         # Decoder
+        value_rgb = tf.read_file(input_queue[0])
+        value_depth = tf.read_file(input_queue[1])
+
+        # Decoder
         png_rgb = tf.image.decode_png(value_rgb)
         png_depth = tf.image.decode_png(value_depth)
 
-        # Scale depth image to values between 0 and 255
-        png_depth -= png_depth.min()
-        png_depth = (png_depth * 255.0/png_depth.max())
+        # Reshape
+        png_rgb = tf.reshape(png_rgb, [width_original, height_original, 3])
+        png_depth = tf.reshape(png_depth, [width_original, height_original, 1])
 
-        # Images are concatenated to 4 channels
-        image = np.concatenate((png_rgb, png_depth), axis=2)
+        # Resize
+        png_rgb = tf.image.resize_images(png_rgb, width, height)
+        png_depth = tf.image.resize_images(png_depth, width, height)
 
-        # Scale down image for CNN input
-        image = scipy.ndimage.zoom(image, (224.0/480, 224.0/640, 1))
+        # Adjust brightness of depth image
+        png_depth = tf.image.adjust_brightness(png_depth, 1)
 
-        # Compute relative position
-        if key > 0:
-            rel_pos = abs_pos[key] - abs_pos[key-1]
-        else:
-            rel_pos = 0
+        image = tf.concat(2, (png_rgb, png_depth))
 
-        return image, rel_pos
+        abs_pos = input_queue[2]
+
+        return image, abs_pos
