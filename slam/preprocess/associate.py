@@ -33,7 +33,7 @@
 #
 # Requirements: 
 # sudo apt-get install python-argparse
-
+from slam.utils.logging_utils import get_logger
 """
 The Kinect provides the color and depth images in an un-synchronized way. This means that the set of time stamps from the color images do not intersect with those of the depth images. Therefore, we need some way of associating color images to depth images.
 
@@ -41,9 +41,8 @@ For this purpose, you can use the ''associate.py'' script. It reads the time sta
 """
 
 import argparse
-import sys
+from cStringIO import StringIO
 import os
-import numpy
 
 
 def read_file_list(filename):
@@ -63,12 +62,12 @@ def read_file_list(filename):
     """
     file = open(filename)
     data = file.read()
-    lines = data.replace(","," ").replace("\t"," ").split("\n") 
-    list = [[v.strip() for v in line.split(" ") if v.strip()!=""] for line in lines if len(line)>0 and line[0]!="#"]
-    list = [(float(l[0]),l[1:]) for l in list if len(l)>1]
+    lines = data.replace(",", " ").replace("\t", " ").split("\n") 
+    list = [[v.strip() for v in line.split(" ") if v.strip() != ""] for line in lines if len(line) > 0 and line[0] != "#"]
+    list = [(float(l[0]), l[1:]) for l in list if len(l) > 1]
     return dict(list)
 
-def associate(first_list, second_list,offset,max_difference):
+def associate(first_list, second_list, offset, max_difference):
     """
     Associate two dictionaries of (stamp,data). As the time stamps never match exactly, we aim 
     to find the closest match for every input tuple.
@@ -100,29 +99,66 @@ def associate(first_list, second_list,offset,max_difference):
     matches.sort()
     return matches
 
+def get_association(first_file, second_file):
+    
+    first_list = read_file_list(first_file)
+    second_list = read_file_list(second_file)
+    offset = 0.00
+    matches = associate(first_list, second_list, offset, max_difference=0.02)
+    
+    string_writer = StringIO()
+    for a, b in matches:
+        string_writer.write("%f %s %f %s" % (a, " ".join(first_list[a]), b - float(offset), " ".join(second_list[b])))
+        string_writer.write('\n')
+    
+    return string_writer.getvalue()
+
+
+"""
+ Creates association files for data.
+"""
+def create_association_data(base_dir):
+    logger = get_logger()
+    filenames = [f for f in os.listdir(base_dir)]
+    for filename in filenames:
+        logger.info('Associating data set :{}'.format(filename))
+        rgb_file = os.path.join(base_dir, filename, 'rgb.txt')
+        depth_file = os.path.join(base_dir, filename, 'depth.txt')
+        association_file = os.path.join(base_dir, filename, 'associated_data.txt')
+        association_data = get_association(rgb_file, depth_file)
+        with open(association_file, 'w') as fw:
+            fw.write(association_data)
+        logger.info('Wrote association data to :{}'.format(association_file))
+    
+
 if __name__ == '__main__':
     
     # parse command line
     parser = argparse.ArgumentParser(description='''
     This script takes two data files with timestamps and associates them   
     ''')
-    parser.add_argument('first_file', help='first text file (format: timestamp data)')
-    parser.add_argument('second_file', help='second text file (format: timestamp data)')
+    parser.add_argument('--first_file', help='first text file (format: timestamp data)')
+    parser.add_argument('--second_file', help='second text file (format: timestamp data)')
     parser.add_argument('--first_only', help='only output associated lines from first file', action='store_true')
-    parser.add_argument('--offset', help='time offset added to the timestamps of the second file (default: 0.0)',default=0.0)
-    parser.add_argument('--max_difference', help='maximally allowed time difference for matching entries (default: 0.02)',default=0.02)
+    parser.add_argument('--offset', help='time offset added to the timestamps of the second file (default: 0.0)', default=0.0)
+    parser.add_argument('--max_difference', help='maximally allowed time difference for matching entries (default: 0.02)', default=0.02)
+    parser.add_argument('--base_dir', help='Enter base dir containing slam datasets')
     args = parser.parse_args()
 
-    first_list = read_file_list(args.first_file)
-    second_list = read_file_list(args.second_file)
-
-    matches = associate(first_list, second_list,float(args.offset),float(args.max_difference))    
-
-    if args.first_only:
-        for a,b in matches:
-            print("%f %s"%(a," ".join(first_list[a])))
+    base_dir = args.base_dir
+    if base_dir:
+        create_association_data(base_dir)
     else:
-        for a,b in matches:
-            print("%f %s %f %s"%(a," ".join(first_list[a]),b-float(args.offset)," ".join(second_list[b])))
+        first_list = read_file_list(args.first_file)
+        second_list = read_file_list(args.second_file)
+    
+        matches = associate(first_list, second_list, float(args.offset), float(args.max_difference))    
+    
+        if args.first_only:
+            for a, b in matches:
+                print("%f %s" % (a, " ".join(first_list[a])))
+        else:
+            for a, b in matches:
+                print("%f %s %f %s" % (a, " ".join(first_list[a]), b - float(args.offset), " ".join(second_list[b])))
             
         
