@@ -116,7 +116,7 @@ class ModelInputProvider:
 
         image = tf.concat(2, (png_rgb, png_depth))
 
-        abs_pos = input_queue[2]
-        abs_pos = tf.reshape(abs_pos, [1, 1, 6])
+        rel_pos = input_queue[2]
+        rel_pos = tf.reshape(rel_pos, [1, 1, 6])
 
-        return tf.cast(image, tf.float32), tf.cast(abs_pos, tf.float32)
+        return tf.cast(image, tf.float32), tf.cast(rel_pos, tf.float32)
