@@ -37,7 +37,8 @@ def init_weights(shape):
 
 
 def model(X, lstm_size, lstm_layers):
-    ''' Prepare input data to LSTM '''
+    '''
+
     # X, input shape: (batch_size, input_vec_size, time_step_size)
     XT = tf.transpose(X, [1, 0, 2])  # permute time_step_size and batch_size
     # XT shape: (input_vec_size, batch_size, time_step_size)
@@ -45,9 +46,9 @@ def model(X, lstm_size, lstm_layers):
     # XR shape: (input vec_size, batch_size)
     X_split = tf.split(0, time_step_size, XR) # split them to time_step_size (28 arrays)
     # Each array shape: (batch_size, input_vec_size)
+    '''
 
-    ''' Compute the actual LSTM-graph '''
-    graph = lstm_model.LSTMmodel(batch_size, X_split)
+    graph = lstm_model.LSTMmodel(X, time_step_size, input_vec_size, 100, 2, 10)
     return graph.build_graph()
 
 mnist = input_data.read_data_sets("MNIST_data/", one_hot=True)
@@ -59,6 +60,7 @@ teX = teX.reshape(-1, 28, 28)
 X = tf.placeholder("float", [None, 28, 28])
 Y = tf.placeholder("float", [None, 10])
 
+print X.get_shape()[1]
 #py_x, state_size = model(X, W, B, init_state, lstm_size, lstm_layers)
 py_x, state_size, init_state = model(X, batch_size, lstm_layers)
 cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(py_x, Y))
