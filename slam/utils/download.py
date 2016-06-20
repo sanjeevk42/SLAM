@@ -1,6 +1,8 @@
 from HTMLParser import HTMLParser
 import os
 import requests
+import urllib2
+from urlparse import urlparse
 
 from slam.utils.logging_utils import get_logger
 
@@ -21,7 +23,10 @@ class URLHTMLParser(HTMLParser, object):
 logger = get_logger()
 
 def fetch_all_files_from_url(base_url, out_folder, extension):
-    chunk_size = 4096
+    chunk_size = 20 * 4096
+    parsed_uri = urlparse(base_url)
+    url_domain = '{uri.scheme}://{uri.netloc}/'.format(uri=parsed_uri)
+    
     html_source = requests.get(base_url).content
     url_parser = URLHTMLParser()
     urls = url_parser.feed(html_source)
@@ -29,15 +34,18 @@ def fetch_all_files_from_url(base_url, out_folder, extension):
     for i, url in enumerate(urls):
         logger.info('processing url:{}'.format(url))
         if not url.startswith('http') or not url.startswith('https'):
-            urls[i] = base_url + url
+            urls[i] = url_domain + url
     
     filtered_urls = [url for url in urls if url.endswith(extension) ]
     for url in filtered_urls:
         file_name = url.split('/')[-1]
         logger.info('downloading file at {} and saving as {}'.format(url, file_name))
+        response = urllib2.urlopen(url)
         with open(os.path.join(out_folder, file_name), 'wb') as f:
-            reader = requests.get(url, stream=True)
-            for chunk in reader.iter_content(chunk_size):
+            while True:
+                chunk = response.read(chunk_size)
+                if not chunk:
+                    break
                 f.write(chunk)
 
 if __name__ == '__main__':

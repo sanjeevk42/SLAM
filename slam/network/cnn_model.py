@@ -15,7 +15,7 @@ class VGG16Model:
         self.batch_size = batch_size
         self.output_dim = output_dim
         self.logger = get_logger()
-        self.initial_params = np.load('../../resources/VGG_16_4ch.npy').item()
+        self.initial_params = np.load('../resources/VGG_16_4ch.npy').item()
         self.initial_params = {key.encode('utf-8'):self.initial_params[key] for key in self.initial_params}
         self.logger.info('Weight keys:{}'.format(self.initial_params.keys()))
     """
@@ -41,10 +41,10 @@ class VGG16Model:
             fc2 = self.__add_conv_layer('fc7-conv', fc1, [1, 1], 4096, 4096)
             fc3 = self.__add_conv_layer('fc8-conv', fc2, [1, 1], 4096, self.output_dim, should_init_wb=False)
             
-            self.output_layer = fc3;
-            self.__add_loss()
-            self.__add_optimizer()
-            return self.output_layer
+            self.output_layer = tf.squeeze(fc3, squeeze_dims=[1 , 2])
+#             self.__add_loss()
+#             self.__add_optimizer()
+            return self.output_layer, self.ground_truth
     
     """
     Adds a weight layer to the network in scope_name with layer_input tensor as layer input. 

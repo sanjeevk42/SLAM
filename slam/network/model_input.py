@@ -1,10 +1,11 @@
-import os
-from os.path import isfile
-
-import tensorflow as tf
-import numpy as np
-
 import bisect
+import os
+
+import numpy as np
+from slam.network.model_config import get_config_provider
+import tensorflow as tf
+from fileinput import filename
+from slam.utils.logging_utils import get_logger
 
 
 def _absolute_position(groundtruth):
@@ -46,11 +47,14 @@ def _find_label(groundtruth, timestamp):
 
 class ModelInputProvider:
     
-    DATA_DIR = '/home/sanjeev/Downloads/rgbd_dataset_freiburg1_rpy'
+    BASE_DATA_DIR = '/home/sanjeev/data/'
     
     def __init__(self, batch_size):
         self.batch_size = batch_size
-        self.dataset_size = 0
+        self.config_provider = get_config_provider()
+        training_filenames = self.config_provider.get_training_filenames()
+        self.training_filenames = [os.path.join(self.BASE_DATA_DIR, filename) for filename in training_filenames]
+        self.logger = get_logger()
     
     """
     Return the input data and ground truth tensors.
@@ -59,30 +63,40 @@ class ModelInputProvider:
     outparam_batch: Labels. 1D tensor of [batch_size] size.
     """    
     def get_training_batch(self):
-        rgbd = np.loadtxt(self.DATA_DIR + "/associated_data.txt", dtype="str", unpack=False)
-        groundtruth = np.loadtxt(self.DATA_DIR + "/groundtruth.txt", dtype="str", unpack=False)
-        self.dataset_size = rgbd.shape[0]
+        self.logger.info('Going to create batch of images and ground truths')
+        images_batch = []
+        groundtruth_batch = []
+        for filename in self.training_filenames:
+            self.logger.info('Creating input queue for training sample at:{}'.format(filename))
+            
+            associations = np.loadtxt(os.path.join(filename, "associated_data.txt"), dtype="str", unpack=False)
+            groundtruth = np.loadtxt(os.path.join(filename , "groundtruth.txt"), dtype="str", unpack=False)
+            dataset_size = associations.shape[0]
+            
+            self.logger.info('The size of dataset:{} is {}'.format(filename, dataset_size))
+            # compute absolute position
+            abs_pos = np.zeros((dataset_size, 6))
+            rel_pos = np.zeros((dataset_size, 6))
+            for i in range(dataset_size):
+                abs_pos[i] = _absolute_position(groundtruth[:, 1:][_find_label(groundtruth[:, 0], associations[i, 0])].astype(np.float32))
+                if i > 0:
+                    rel_pos[i] = abs_pos[i] - abs_pos[i - 1]
+                else:
+                    rel_pos[i] = np.zeros(6)
 
-        # compute absolute position
-        abs_pos = np.zeros((self.dataset_size, 6))
-        rel_pos = np.zeros((self.dataset_size, 6))
-        for i in range(self.dataset_size):
-            abs_pos[i] = _absolute_position(groundtruth[:, 1:][_find_label(groundtruth[:, 0], rgbd[i, 0])].astype(np.float32))
-            if i > 0:
-                rel_pos[i] = abs_pos[i] - abs_pos[i - 1]
-            else:
-                rel_pos[i] = np.zeros(6)
+            rgb_filepath, depth_filepath = associations[:, 1], associations[:, 3]
+            rgb_images = self.BASE_DATA_DIR + "/" + tf.convert_to_tensor(rgb_filepath)
+            depth_images = self.BASE_DATA_DIR + "/" + tf.convert_to_tensor(depth_filepath)
 
-        rgb_images = self.DATA_DIR + "/" + tf.convert_to_tensor(rgbd[:, 1])
-        depth_images = self.DATA_DIR + "/" + tf.convert_to_tensor(rgbd[:, 3])
-
-        input_queue = tf.train.slice_input_producer([rgb_images, depth_images, rel_pos], shuffle=False)
-
-        image, outparams = self.read_rgbd_data(input_queue)
+            input_queue = tf.train.slice_input_producer([rgb_images, depth_images, rel_pos], shuffle=False)
         
-        images, outparam_batch = tf.train.batch([image, outparams], batch_size=self.batch_size,
-                        num_threads=20, capacity=4 * self.batch_size)
-        return images, outparam_batch
+            image, outparams = self.read_rgbd_data(input_queue)
+            images_batch.append(image)
+            groundtruth_batch.append(outparams)
+        
+#         images, outparam_batch = tf.train.batch([image, outparams], batch_size=self.batch_size,
+#                         num_threads=20, capacity=4 * self.batch_size)
+        return images_batch, groundtruth_batch
     
     """
      Returns the rgbd tensor and output parameters tensor after reading from file name queue.
