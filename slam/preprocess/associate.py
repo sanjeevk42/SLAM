@@ -124,7 +124,7 @@ def create_association_data(base_dir):
         logger.info('Associating data set :{}'.format(filename))
         rgb_file = os.path.join(base_dir, filename, 'rgb.txt')
         depth_file = os.path.join(base_dir, filename, 'depth.txt')
-        association_file = os.path.join(base_dir, filename, 'associated_data.txt')
+        association_file = os.path.join(base_dir, filename, 'associate.txt')
         association_data = get_association(rgb_file, depth_file)
         with open(association_file, 'w') as fw:
             fw.write(association_data)

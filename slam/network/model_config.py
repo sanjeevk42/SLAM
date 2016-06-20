@@ -17,6 +17,7 @@ class ModelConfigProvider:
     def get_lstm_layers(self):
         return self.config['train']['model']['lstm_layers']
     
+    
 
 config_provider = ModelConfigProvider()
 

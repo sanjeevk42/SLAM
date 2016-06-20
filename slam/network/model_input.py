@@ -47,14 +47,14 @@ def _find_label(groundtruth, timestamp):
 
 class ModelInputProvider:
     
-    BASE_DATA_DIR = '/home/sanjeev/data/'
+    BASE_DATA_DIR = '/home/sanjeev/data/'  # '/usr/data/rgbd_datasets/tum_rgbd_benchmark/'
     
-    def __init__(self, batch_size):
-        self.batch_size = batch_size
+    def __init__(self):
         self.config_provider = get_config_provider()
         training_filenames = self.config_provider.get_training_filenames()
         self.training_filenames = [os.path.join(self.BASE_DATA_DIR, filename) for filename in training_filenames]
         self.logger = get_logger()
+        self.batch_size = len(self.training_filenames)
     
     """
     Return the input data and ground truth tensors.
@@ -69,7 +69,7 @@ class ModelInputProvider:
         for filename in self.training_filenames:
             self.logger.info('Creating input queue for training sample at:{}'.format(filename))
             
-            associations = np.loadtxt(os.path.join(filename, "associated_data.txt"), dtype="str", unpack=False)
+            associations = np.loadtxt(os.path.join(filename, "associate.txt"), dtype="str", unpack=False)
             groundtruth = np.loadtxt(os.path.join(filename , "groundtruth.txt"), dtype="str", unpack=False)
             dataset_size = associations.shape[0]
             
@@ -84,11 +84,14 @@ class ModelInputProvider:
                 else:
                     rel_pos[i] = np.zeros(6)
 
-            rgb_filepath, depth_filepath = associations[:, 1], associations[:, 3]
-            rgb_images = self.BASE_DATA_DIR + "/" + tf.convert_to_tensor(rgb_filepath)
-            depth_images = self.BASE_DATA_DIR + "/" + tf.convert_to_tensor(depth_filepath)
+            rgb_filepaths = associations[:, 1]
+            depth_filepaths = associations[:, 3]
+            rgb_filepaths = [os.path.join(filename, filepath) for filepath in rgb_filepaths]
+            depth_filepaths = [os.path.join(filename, filepath) for filepath in depth_filepaths]
+            rgb_filepaths_tensor = tf.convert_to_tensor(rgb_filepaths)
+            depth_filepaths_tensor = tf.convert_to_tensor(depth_filepaths)
 
-            input_queue = tf.train.slice_input_producer([rgb_images, depth_images, rel_pos], shuffle=False)
+            input_queue = tf.train.slice_input_producer([rgb_filepaths_tensor, depth_filepaths_tensor, rel_pos], shuffle=False)
         
             image, outparams = self.read_rgbd_data(input_queue)
             images_batch.append(image)
@@ -115,6 +118,7 @@ class ModelInputProvider:
 
         # Decoder
         png_rgb = tf.image.decode_png(value_rgb, channels=3)
+        tf.image_summary('image', png_rgb)
         png_depth = tf.image.decode_png(value_depth, channels=1)
 
         # Reshape
@@ -132,5 +136,13 @@ class ModelInputProvider:
 
         rel_pos = input_queue[2]
         rel_pos = tf.reshape(rel_pos, [1, 1, 6])
-
+        
         return tf.cast(image, tf.float32), tf.cast(rel_pos, tf.float32)
+
+    def get_batch_size(self):
+        return self.batch_size
+
+
+input_provider = ModelInputProvider()
+def get_input_provider():
+    return input_provider

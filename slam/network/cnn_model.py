@@ -1,18 +1,19 @@
-import numpy as np
-from slam.network.model_input import ModelInputProvider
-from slam.utils.logging_utils import get_logger
-from slam.utils.time_utils import time_it
-import tensorflow as tf
-
 """
 This constructs the graph for VGG16 CNN model.
 """
+
+import numpy as np
+from slam.utils.logging_utils import get_logger
+from slam.utils.time_utils import time_it
+import tensorflow as tf
+from slam.network.model_input import get_input_provider
+
+
 class VGG16Model:
     
-    def __init__(self, image_shape, batch_size, output_dim):
-        self.input_provider = ModelInputProvider(batch_size)
+    def __init__(self, image_shape, output_dim):
+        self.input_provider = get_input_provider()
         self.image_shape = image_shape
-        self.batch_size = batch_size
         self.output_dim = output_dim
         self.logger = get_logger()
         self.initial_params = np.load('../resources/VGG_16_4ch.npy').item()

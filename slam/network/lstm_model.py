@@ -1,9 +1,13 @@
-import tensorflow as tf
-
 """
 This constructs the graph of the LSTM model
 """
+
 from tensorflow.python.ops.rnn_cell import LSTMCell, MultiRNNCell
+
+from slam.network.model_input import get_input_provider
+import tensorflow as tf
+
+
 class LSTMmodel:
 
     """
@@ -16,6 +20,7 @@ class LSTMmodel:
         self.output_dim = output_dim
         self.forget_bias = 1.0
         self.ground_truth = ground_truth
+        self.batch_size = get_input_provider().get_batch_size()
         self.init_state = self.__init_state()
 
     def build_graph(self):
@@ -26,11 +31,11 @@ class LSTMmodel:
             cell_output, state = rnn_cell(self.model_input, state)
             print("%i layers created" % self.layers)
             self.output_layer = self.__add_output_layer("fc_out", cell_output, self.layer_size, self.output_dim)
+            tf.scalar_summary('output_layer value', self.output_layer)
             return self.output_layer, rnn_cell.state_size, self.init_state
 
-
     def __init_state(self):
-        return tf.zeros([1, 2 * self.layer_size * self.layers], tf.float32)
+        return tf.zeros([self.batch_size, 2 * self.layer_size * self.layers], tf.float32)
 
 
     def __add_output_layer(self, scope_name, layer_input, input_dim, output_dim):
@@ -47,11 +52,19 @@ class LSTMmodel:
         return self.cost
     
     def add_optimizer(self):
-        learning_rate = 0.1  # need to make adaptive ...
+        learning_rate = 0.01  # need to make adaptive ...
         self.global_step = tf.Variable(0, trainable=False)
         optimizer = tf.train.GradientDescentOptimizer(learning_rate)
         gradients = optimizer.compute_gradients(self.cost)
         self.apply_gradient_op = optimizer.apply_gradients(gradients, self.global_step)
+        
+        for var in tf.trainable_variables():
+            tf.histogram_summary(var.op.name, var)
+
+        for grad, var in gradients:
+            if grad is not None:
+                tf.histogram_summary(var.op.name + '/gradients', grad)
+          
         return self.apply_gradient_op
 
 
