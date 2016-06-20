@@ -3,10 +3,11 @@ This constructs the graph for VGG16 CNN model.
 """
 
 import numpy as np
+from slam.network.model_input import get_input_provider
+from slam.network.summary_helper import add_activation_summary
 from slam.utils.logging_utils import get_logger
 from slam.utils.time_utils import time_it
 import tensorflow as tf
-from slam.network.model_input import get_input_provider
 
 
 class VGG16Model:
@@ -25,7 +26,7 @@ class VGG16Model:
      
     """
     def build_graph(self):
-        with tf.variable_scope('main'):
+        with tf.variable_scope('vgg16'):
             # # TODO: Need to get the input and output placeholder tensors from input provider...
 #             conv_input = tf.placeholder(tf.float32, shape=[self.batch_size] + self.image_shape)
 #             conv_output = tf.placeholder(tf.float32, shape=[self.batch_size, 1, 1, self.output_dim])
@@ -43,6 +44,8 @@ class VGG16Model:
             fc3 = self.__add_conv_layer('fc8-conv', fc2, [1, 1], 4096, self.output_dim, should_init_wb=False)
             
             self.output_layer = tf.squeeze(fc3, squeeze_dims=[1 , 2])
+            
+            add_activation_summary(self.output_layer)
 #             self.__add_loss()
 #             self.__add_optimizer()
             return self.output_layer, self.ground_truth
@@ -102,13 +105,13 @@ class VGG16Model:
         return initial_weights, initial_bias
     
     def __add_loss(self):
-        self.cost = tf.reduce_sum(tf.pow(self.output_layer - self.ground_truth, 2))
+        self.loss = tf.reduce_sum(tf.pow(self.output_layer - self.ground_truth, 2))
     
     def __add_optimizer(self):
         learning_rate = 0.1  # need to make adaptive ...
         self.global_step = tf.Variable(0, trainable=False)
         optimizer = tf.train.GradientDescentOptimizer(learning_rate)
-        gradients = optimizer.compute_gradients(self.cost)
+        gradients = optimizer.compute_gradients(self.loss)
         self.apply_gradient_op = optimizer.apply_gradients(gradients, self.global_step)
         
     """
@@ -120,7 +123,7 @@ class VGG16Model:
         session.run(tf.initialize_all_variables())
         for step in xrange(max_steps):
             self.logger.info('Executing step:{}'.format(step))
-            session.run([self.apply_gradient_op, self.cost])
+            session.run([self.apply_gradient_op, self.loss])
     
     def evaluate_model(self):
         pass
