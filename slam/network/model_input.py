@@ -9,7 +9,7 @@ from slam.utils.logging_utils import get_logger
 
 
 def _absolute_position(groundtruth):
-    x = groundtruth[0:3]
+    t = groundtruth[0:3]
     q = groundtruth[3:7]
 
     # compute euler angles
@@ -38,7 +38,7 @@ def _absolute_position(groundtruth):
     w[1] = 1 / (2 * np.sin(w_abs)) * (rot_mat[0, 2] - rot_mat[2, 0]) * w_abs
     w[2] = 1 / (2 * np.sin(w_abs)) * (rot_mat[1, 0] - rot_mat[0, 1]) * w_abs
 
-    return np.concatenate((x, w), 0)
+    return np.concatenate((t, w), 0)
 
 
 def _find_label(groundtruth, timestamp):
@@ -48,6 +48,16 @@ def _find_label(groundtruth, timestamp):
 class ModelInputProvider:
     
     BASE_DATA_DIR = '/home/sanjeev/data/'  # '/usr/data/rgbd_datasets/tum_rgbd_benchmark/'
+    # focal length x fr1/fr2/fr3
+    FX = [517.3, 520.9, 535.4]
+    # focal length y
+    FY = [516.5, 521.0, 539.2]
+    # optical center x
+    CX = [318.6, 325.1, 320.1]
+    # optical center y
+    CY = [255.3, 249.7, 247.6]
+    # 16-bit PNG files
+    FACTOR = 5000
     
     def __init__(self):
         self.config_provider = get_config_provider()
@@ -66,26 +76,30 @@ class ModelInputProvider:
         self.logger.info('Going to create batch of images and ground truths')
         images_batch = []
         groundtruth_batch = []
+        sequence_length = 300
         for filename in self.training_filenames:
             self.logger.info('Creating input queue for training sample at:{}'.format(filename))
             
             associations = np.loadtxt(os.path.join(filename, "associate.txt"), dtype="str", unpack=False)
-            groundtruth = np.loadtxt(os.path.join(filename , "groundtruth.txt"), dtype="str", unpack=False)
+            groundtruth = np.loadtxt(os.path.join(filename, "groundtruth.txt"), dtype="str", unpack=False)
             dataset_size = associations.shape[0]
+
+            start_point = np.randint(0, dataset_size - sequence_length)
             
             self.logger.info('The size of dataset:{} is {}'.format(filename, dataset_size))
             # compute absolute position
             abs_pos = np.zeros((dataset_size, 6))
             rel_pos = np.zeros((dataset_size, 6))
-            for i in range(dataset_size):
+            for ind in range(sequence_length):
+                i = ind + start_point
                 abs_pos[i] = _absolute_position(groundtruth[:, 1:][_find_label(groundtruth[:, 0], associations[i, 0])].astype(np.float32))
                 if i > 0:
                     rel_pos[i] = abs_pos[i] - abs_pos[i - 1]
                 else:
                     rel_pos[i] = np.zeros(6)
 
-            rgb_filepaths = associations[:, 1]
-            depth_filepaths = associations[:, 3]
+            rgb_filepaths = associations[start_point:start_point+sequence_length, 1]
+            depth_filepaths = associations[start_point:start_point+sequence_length, 3]
             rgb_filepaths = [os.path.join(filename, filepath) for filepath in rgb_filepaths]
             depth_filepaths = [os.path.join(filename, filepath) for filepath in depth_filepaths]
             rgb_filepaths_tensor = tf.convert_to_tensor(rgb_filepaths)
@@ -141,6 +155,18 @@ class ModelInputProvider:
 
     def get_batch_size(self):
         return self.batch_size
+
+    def _point_cloud(self, depth_image, dataset_int):
+        x = []
+        y = []
+        z = []
+        for v in range(depth_image.height):
+            for u in range(depth_image.width):
+                z.append(depth_image[v, u] / self.FACTOR)
+                x.append((u - self.CX[dataset_int-1]) * z[-1] / self.FX[dataset_int-1])
+                y.append((v - self.CY[dataset_int-1]) * z[-1] / self.FY[dataset_int-1])
+        return [x, y, z]
+
 
 
 input_provider = ModelInputProvider()
