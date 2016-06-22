@@ -1,11 +1,13 @@
 import bisect
+from fileinput import filename
 import os
+import random
 
 import numpy as np
 from slam.network.model_config import get_config_provider
-import tensorflow as tf
-from fileinput import filename
 from slam.utils.logging_utils import get_logger
+import tensorflow as tf
+from collections import OrderedDict
 
 
 def _absolute_position(groundtruth):
@@ -45,7 +47,7 @@ def _find_label(groundtruth, timestamp):
     return bisect.bisect_left(groundtruth, timestamp)
 
 
-class ModelInputProvider:
+class QueuedInputProvider:
     
     BASE_DATA_DIR = '/home/sanjeev/data/'  # '/usr/data/rgbd_datasets/tum_rgbd_benchmark/'
     # focal length x fr1/fr2/fr3
@@ -61,11 +63,12 @@ class ModelInputProvider:
     
     def __init__(self):
         self.config_provider = get_config_provider()
-        training_filenames = self.config_provider.get_training_filenames()
+        training_filenames = self.config_provider.training_filenames()
         self.training_filenames = [os.path.join(self.BASE_DATA_DIR, filename) for filename in training_filenames]
         self.logger = get_logger()
         self.batch_size = len(self.training_filenames)
     
+        
     """
     Return the input data and ground truth tensors.
 
@@ -98,8 +101,8 @@ class ModelInputProvider:
                 else:
                     rel_pos[i] = np.zeros(6)
 
-            rgb_filepaths = associations[start_point:start_point+sequence_length, 1]
-            depth_filepaths = associations[start_point:start_point+sequence_length, 3]
+            rgb_filepaths = associations[start_point:start_point + sequence_length, 1]
+            depth_filepaths = associations[start_point:start_point + sequence_length, 3]
             rgb_filepaths = [os.path.join(filename, filepath) for filepath in rgb_filepaths]
             depth_filepaths = [os.path.join(filename, filepath) for filepath in depth_filepaths]
             rgb_filepaths_tensor = tf.convert_to_tensor(rgb_filepaths)
@@ -163,12 +166,139 @@ class ModelInputProvider:
         for v in range(depth_image.height):
             for u in range(depth_image.width):
                 z.append(depth_image[v, u] / self.FACTOR)
-                x.append((u - self.CX[dataset_int-1]) * z[-1] / self.FX[dataset_int-1])
-                y.append((v - self.CY[dataset_int-1]) * z[-1] / self.FY[dataset_int-1])
+                x.append((u - self.CX[dataset_int - 1]) * z[-1] / self.FX[dataset_int - 1])
+                y.append((v - self.CY[dataset_int - 1]) * z[-1] / self.FY[dataset_int - 1])
         return [x, y, z]
 
 
+class SimpleInputProvider:
 
-input_provider = ModelInputProvider()
-def get_input_provider():
-    return input_provider
+    class InputBatch:
+    
+        def __init__(self, input_provider, seqdir_vs_offset, sequence_length):
+            self.counter = 0
+            self.seqdir_vs_offset = seqdir_vs_offset
+            self.input_provider = input_provider
+            self.sequence_length = sequence_length
+        
+        def __iter__(self):
+            return self
+        
+        def next(self):
+            rgbd_batch = []
+            groundtruth_batch = []
+            if self.counter < self.sequence_length:
+                for i, ele in enumerate(self.seqdir_vs_offset):
+                    seqdir = ele[0]
+                    offset = ele[1]
+                    rgbd_file = self.input_provider.get_rgbd_file(seqdir, offset)
+                    rgbd_batch.append(rgbd_file)
+                    groundtruth = self.input_provider.get_ground_truth(seqdir, offset)
+                    groundtruth_batch.append(groundtruth)
+                    self.counter += 1
+                    self.seqdir_vs_offset[i][1] = offset + 1
+                return np.array(rgbd_batch), np.array(groundtruth_batch)
+            else:
+                raise StopIteration()
+        
+    BASE_DATA_DIR = '/home/sanjeev/data/'  # '/usr/data/rgbd_datasets/tum_rgbd_benchmark/'
+    
+    def __init__(self):
+        self.config_provider = get_config_provider()
+        training_filenames = self.config_provider.training_filenames()
+        self.sequence_dirs = [os.path.join(self.BASE_DATA_DIR, filename) for filename in training_filenames]
+        
+        self.seq_dir_map = {}
+        
+        for seq_dir in self.sequence_dirs:
+            associations = np.loadtxt(os.path.join(seq_dir, "associate.txt"), dtype="str", unpack=False)
+            groundtruth = np.loadtxt(os.path.join(seq_dir , "groundtruth.txt"), dtype="str", unpack=False)
+            if seq_dir not in self.seq_dir_map:
+                self.seq_dir_map[seq_dir] = {}
+            self.seq_dir_map[seq_dir]['associations'] = associations
+            self.seq_dir_map[seq_dir]['groundtruth'] = groundtruth
+            
+            sequence_size = associations.shape[0]
+            abs_pos = np.zeros((sequence_size, 6))
+            rel_pos = np.zeros((sequence_size, 6))
+            for i in range(sequence_size):
+                abs_pos[i] = _absolute_position(groundtruth[:, 1:][_find_label(groundtruth[:, 0],
+                                                         associations[i, 0])].astype(np.float32))
+                if i > 0:
+                    rel_pos[i] = abs_pos[i] - abs_pos[i - 1]
+                else:
+                    rel_pos[i] = np.zeros(6)
+            self.seq_dir_map[seq_dir]['relpos'] = rel_pos
+            
+    def get_next_batch(self, sequence_length, batch_size):
+        random.shuffle(self.sequence_dirs)
+        training_sequences = self.sequence_dirs
+        total_sequences = len(training_sequences)
+        seqdir_vs_offset = []
+        for i in xrange(batch_size):
+            seq_dir = training_sequences[i % total_sequences]
+            associations = self.seq_dir_map[seq_dir]['associations']
+            total_frames = len(associations)
+            offset = random.randint(0, total_frames - sequence_length)
+            seqdir_vs_offset.append([seq_dir, offset])
+            
+        input_batch = self.InputBatch(self, seqdir_vs_offset, sequence_length)
+        return input_batch
+    
+    def get_rgbd_file(self, dirname, offset):
+        associations = self.seq_dir_map[dirname]['associations']
+        rgb_file = os.path.join(dirname, associations[offset, 1])
+        depth_file = os.path.join(dirname, associations[offset, 3])
+       
+        
+        session = tf.InteractiveSession()
+        
+        rgb_file = tf.read_file(rgb_file)
+        depth_file = tf.read_file(depth_file)
+        
+        png_rgb = tf.image.decode_png(rgb_file, channels=3)
+        png_depth = tf.image.decode_png(depth_file, channels=1)
+        
+        width_original, height_original = 480, 640
+        width = height = 224
+        # Reshape
+        png_rgb = tf.reshape(png_rgb, [width_original, height_original, 3])
+        png_depth = tf.reshape(png_depth, [width_original, height_original, 1])
+
+        # Resize
+        png_rgb = tf.image.resize_images(png_rgb, width, height)
+        png_depth = tf.image.resize_images(png_depth, width, height)
+
+        # Adjust brightness of depth image
+        png_depth = tf.image.adjust_brightness(png_depth, 1)
+
+        image = tf.concat(2, (png_rgb, png_depth))
+
+        
+        image = tf.cast(image, tf.float32)
+        rgbd_file = image.eval()
+        
+        session.close()
+        
+        return rgbd_file
+    
+    def get_ground_truth(self, dirname, offset):
+        groundtruth = self.seq_dir_map[dirname]['relpos'][offset, :]
+        groundtruth = np.reshape(groundtruth, [1, 1, 6])
+        return groundtruth
+            
+queued_input_provider = QueuedInputProvider()
+def get_queued_input_provider():
+    return queued_input_provider
+
+simple_input_provider = SimpleInputProvider()
+def get_simple_input_provider():
+    return simple_input_provider
+
+if __name__ == '__main__':
+    input_provider = SimpleInputProvider()
+    
+    input_batch = input_provider.get_next_batch(100, 20)
+    for i, batch in enumerate(input_batch):
+        print i, 'groundtruth: ', batch[1]
+

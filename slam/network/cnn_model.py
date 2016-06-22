@@ -3,7 +3,7 @@ This constructs the graph for VGG16 CNN model.
 """
 
 import numpy as np
-from slam.network.model_input import get_input_provider
+from slam.network.model_input import get_queued_input_provider
 from slam.network.summary_helper import add_activation_summary
 from slam.utils.logging_utils import get_logger
 from slam.utils.time_utils import time_it
@@ -12,12 +12,12 @@ import tensorflow as tf
 
 class VGG16Model:
     
-    def __init__(self, image_shape, output_dim):
-        self.input_provider = get_input_provider()
-        self.image_shape = image_shape
+    def __init__(self, rgbd_input_batch, output_dim):
+        self.input_provider = get_queued_input_provider()
+        self.rgbd_input_batch = rgbd_input_batch
         self.output_dim = output_dim
         self.logger = get_logger()
-        self.initial_params = np.load('../resources/VGG_16_4ch.npy').item()
+        self.initial_params = np.load('resources/VGG_16_4ch.npy').item()
         self.initial_params = {key.encode('utf-8'):self.initial_params[key] for key in self.initial_params}
         self.logger.info('Weight keys:{}'.format(self.initial_params.keys()))
     """
@@ -31,24 +31,22 @@ class VGG16Model:
 #             conv_input = tf.placeholder(tf.float32, shape=[self.batch_size] + self.image_shape)
 #             conv_output = tf.placeholder(tf.float32, shape=[self.batch_size, 1, 1, self.output_dim])
             
-            images, outparams_batch = self.input_provider.get_training_batch()
-            self.ground_truth = outparams_batch
             filter_size = [3, 3]
-            conv1 = self.__add_weight_layer('conv1', images, 2, filter_size, 4, 64, should_init_wb=False)
+            conv1 = self.__add_weight_layer('conv1', self.rgbd_input_batch, 2, filter_size, 4, 64, should_init_wb=False)
             conv2 = self.__add_weight_layer('conv2', conv1, 2, filter_size, 64, 128)
             conv3 = self.__add_weight_layer('conv3', conv2, 2, filter_size, 128, 256)
             conv4 = self.__add_weight_layer('conv4', conv3, 3, filter_size, 256, 512)
             conv5 = self.__add_weight_layer('conv5', conv4, 3, filter_size, 512, 512)
             fc1 = self.__add_conv_layer('fc6-conv', conv5, [7, 7], 512, 4096, padding='VALID')
             fc2 = self.__add_conv_layer('fc7-conv', fc1, [1, 1], 4096, 4096)
-            fc3 = self.__add_conv_layer('fc8-conv', fc2, [1, 1], 4096, self.output_dim, should_init_wb=False)
+#             fc3 = self.__add_conv_layer('fc8-conv', fc2, [1, 1], 4096, self.output_dim, should_init_wb=False)
             
-            self.output_layer = tf.squeeze(fc3, squeeze_dims=[1 , 2])
+            self.output_layer = tf.squeeze(fc2, squeeze_dims=[1 , 2])
             
             add_activation_summary(self.output_layer)
 #             self.__add_loss()
 #             self.__add_optimizer()
-            return self.output_layer, self.ground_truth
+            return self.output_layer
     
     """
     Adds a weight layer to the network in scope_name with layer_input tensor as layer input. 
@@ -83,9 +81,9 @@ class VGG16Model:
             weights_shape = filter_size + [input_channels, output_channels]
             initial_weights, initial_bias = self.__get_init_params(scope_name, should_init_wb)
             self.logger.info('Weight shape:{} for scope:{}'.format(weights_shape, tf.get_variable_scope().name))
-            conv_weights = tf.get_variable('initial_params', weights_shape, tf.float32,
+            conv_weights = self.__get_variable('initial_params', weights_shape, tf.float32,
                                             initializer=initial_weights)
-            conv_biases = tf.get_variable('biases', [output_channels], tf.float32,
+            conv_biases = self.__get_variable('biases', [output_channels], tf.float32,
                                             initializer=initial_bias)
             conv = tf.nn.conv2d(layer_input, conv_weights,
                                     strides=[1 , 1 , 1, 1], padding=padding)
@@ -130,6 +128,11 @@ class VGG16Model:
     
     def predict(self):
         pass
+    
+    def __get_variable(self, name, shape, dtype, initializer):
+        with tf.device('/cpu:0'):
+            var = tf.get_variable(name, shape, dtype, initializer=initializer)
+        return var
 
 if __name__ == '__main__':
     batch_size = 10
