@@ -77,19 +77,24 @@ def _inverse_trans(trans):
 
 
 def _twist_to_trans(twist):
-    v = twist[0:3]
-    w = twist[3:6]
+    v = np.matrix(twist[0, 0:3])
+    w = np.matrix(twist[0, 3:6])
     w_abs = np.linalg.norm(w)
     w_hat = np.zeros((3, 3))
-    w_hat[0] = [0, -w[2], w[1]]
-    w_hat[1] = [w[2], 0, -w[0]]
-    w_hat[2] = [-w[1], w[0], 0]
+    w_hat[0] = [0, -w[0, 2], w[0, 1]]
+    w_hat[1] = [w[0, 2], 0, -w[0, 0]]
+    w_hat[2] = [-w[0, 1], w[0, 0], 0]
     w_hat = np.matrix(w_hat)
 
-    R = np.eye(3) + w_hat/w_abs * np.sin(w_abs) + w_hat * w_hat / (w_abs * w_abs) * (1 - np.cos(w_abs))
-    T = (np.matrix((np.eye(3) - R)) * w_hat * v + w * np.transpose(w) * v) / (w_abs*w_abs)
+    rot = np.eye(3) + w_hat/w_abs * np.sin(w_abs) + w_hat * w_hat / (w_abs * w_abs) * (1 - np.cos(w_abs))
 
-    return [[R, T], [np.zeros((1, 3)), 1]]
+    trans = (np.matrix((np.eye(3) - rot)) * w_hat * np.transpose(v) + np.transpose(w) * w * np.transpose(v)) / (w_abs * w_abs)
+
+    tr = np.zeros((4, 4))
+    tr[0:3, 0:4] = np.concatenate((rot, trans), 1)
+    tr[3, 3] = 1
+
+    return tr
 
 
 def _find_label(groundtruth, timestamp):
