@@ -2,12 +2,14 @@ import bisect
 from fileinput import filename
 import os
 import random
+from scipy import ndimage
+from skimage import transform
 
 import numpy as np
 from slam.network.model_config import get_config_provider
 from slam.utils.logging_utils import get_logger
+from slam.utils.time_utils import time_it
 import tensorflow as tf
-from collections import OrderedDict
 
 
 def _quat_to_transformation(groundtruth):
@@ -246,6 +248,7 @@ class SimpleInputProvider:
         def __iter__(self):
             return self
         
+        @time_it
         def next(self):
             rgbd_batch = []
             groundtruth_batch = []
@@ -257,13 +260,13 @@ class SimpleInputProvider:
                     rgbd_batch.append(rgbd_file)
                     groundtruth = self.input_provider.get_ground_truth(seqdir, offset)
                     groundtruth_batch.append(groundtruth)
-                    self.counter += 1
                     self.seqdir_vs_offset[i][1] = offset + 1
+                self.counter += 1
                 return np.array(rgbd_batch), np.array(groundtruth_batch)
             else:
                 raise StopIteration()
         
-    BASE_DATA_DIR = '/home/sanjeev/data/'  # '/usr/data/rgbd_datasets/tum_rgbd_benchmark/'
+    BASE_DATA_DIR = '/usr/data/rgbd_datasets/tum_rgbd_benchmark/'
     
     def __init__(self):
         self.config_provider = get_config_provider()
@@ -309,44 +312,34 @@ class SimpleInputProvider:
     
     def get_rgbd_file(self, dirname, offset):
         associations = self.seq_dir_map[dirname]['associations']
-        rgb_file = os.path.join(dirname, associations[offset, 1])
-        depth_file = os.path.join(dirname, associations[offset, 3])
+        
+        if associations[offset, 1].startswith('depth'):
+            rgb_filename = os.path.join(dirname, associations[offset, 3])
+            depth_filename = os.path.join(dirname, associations[offset, 1])
+        else:
+            rgb_filename = os.path.join(dirname, associations[offset, 1])
+            depth_filename = os.path.join(dirname, associations[offset, 3])
        
-        
-        session = tf.InteractiveSession()
-        
-        rgb_file = tf.read_file(rgb_file)
-        depth_file = tf.read_file(depth_file)
-        
-        png_rgb = tf.image.decode_png(rgb_file, channels=3)
-        png_depth = tf.image.decode_png(depth_file, channels=1)
-        
-        width_original, height_original = 480, 640
+        rgb_img = ndimage.imread(rgb_filename)
+        depth_img = ndimage.imread(depth_filename)
         width = height = 224
         # Reshape
-        png_rgb = tf.reshape(png_rgb, [width_original, height_original, 3])
-        png_depth = tf.reshape(png_depth, [width_original, height_original, 1])
+#         width_original = 480
+#         height_original = 640
+        depth_img = np.reshape(depth_img, list(depth_img.shape) + [1])
+#         rgb_img = np.reshape(rgb_img, [width_original, height_original, 3])
+        rgbd_img = np.concatenate((rgb_img, depth_img), 2)
 
         # Resize
-        png_rgb = tf.image.resize_images(png_rgb, width, height)
-        png_depth = tf.image.resize_images(png_depth, width, height)
+        rgbd_img = transform.resize(rgbd_img, [width, height, 4])
 
         # Adjust brightness of depth image
-        png_depth = tf.image.adjust_brightness(png_depth, 1)
+        # png_depth = tf.image.adjust_brightness(png_depth, 1)
 
-        image = tf.concat(2, (png_rgb, png_depth))
-
-        
-        image = tf.cast(image, tf.float32)
-        rgbd_file = image.eval()
-        
-        session.close()
-        
-        return rgbd_file
+        return rgbd_img.astype(np.float32)
     
     def get_ground_truth(self, dirname, offset):
         groundtruth = self.seq_dir_map[dirname]['relpos'][offset, :]
-        groundtruth = np.reshape(groundtruth, [1, 1, 6])
         return groundtruth
             
 queued_input_provider = QueuedInputProvider()
@@ -362,5 +355,5 @@ if __name__ == '__main__':
     
     input_batch = input_provider.get_next_batch(100, 20)
     for i, batch in enumerate(input_batch):
-        print i, 'groundtruth: ', batch[1]
+        print i, 'groundtruth: ', batch[1][0].shape, 'rgbd shape:', batch[0][0].shape
 
