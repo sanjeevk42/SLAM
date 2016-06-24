@@ -46,7 +46,7 @@ def _quat_to_transformation(groundtruth):
 
 def _trans_to_twist(trans):
     # compute angular velocities
-    w_abs = np.arccos((np.trace(trans) - 1) / 2)
+    w_abs = np.arccos((np.trace(trans[0:3, 0:3]) - 1) / 2)
     w = np.zeros(3)
     w[0] = 1 / (2 * np.sin(w_abs)) * (trans[2, 1] - trans[1, 2]) * w_abs
     w[1] = 1 / (2 * np.sin(w_abs)) * (trans[0, 2] - trans[2, 0]) * w_abs
@@ -61,8 +61,8 @@ def _trans_to_twist(trans):
 
     w = np.matrix(w)
     w_hat = np.matrix(w_hat)
-    omega = (np.matrix((np.eye(3) - trans[0:3, 0:3]))*w_hat + w * np.transpose(w)) / (w_abs*w_abs),
-    v = np.transpose(np.linalg.inv(omega) * np.matrix(trans[0:3, 3:4]))
+    omega = (np.matrix((np.eye(3) - trans[0:3, 0:3]))*w_hat + w * np.transpose(w)) / (w_abs*w_abs)
+    v = np.transpose(np.linalg.inv(omega) * np.matrix(trans[0:3, 3]))
 
     return np.concatenate((v, w), 1)
 
@@ -70,10 +70,26 @@ def _trans_to_twist(trans):
 def _inverse_trans(trans):
     inv_trans = np.zeros((4, 4))
     inv_trans[0:3, 0:3] = np.transpose(trans[0:3, 0:3])
-    inv_trans[0:3, 3:4] = np.matrix(inv_trans[0:3, 0:3]) * np.matrix(trans[0:3, 3:4])
+    inv_trans[0:3, 3] = -np.matrix(inv_trans[0:3, 0:3]) * np.matrix(trans[0:3, 3])
     inv_trans[3, 3] = 1
 
     return inv_trans
+
+
+def _twist_to_trans(twist):
+    v = twist[0:3]
+    w = twist[3:6]
+    w_abs = np.linalg.norm(w)
+    w_hat = np.zeros((3, 3))
+    w_hat[0] = [0, -w[2], w[1]]
+    w_hat[1] = [w[2], 0, -w[0]]
+    w_hat[2] = [-w[1], w[0], 0]
+    w_hat = np.matrix(w_hat)
+
+    R = np.eye(3) + w_hat/w_abs * np.sin(w_abs) + w_hat * w_hat / (w_abs * w_abs) * (1 - np.cos(w_abs))
+    T = (np.matrix((np.eye(3) - R)) * w_hat * v + w * np.transpose(w) * v) / (w_abs*w_abs)
+
+    return [[R, T], [np.zeros((1, 3)), 1]]
 
 
 def _find_label(groundtruth, timestamp):
