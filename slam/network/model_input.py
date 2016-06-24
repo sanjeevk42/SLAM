@@ -10,7 +10,7 @@ import tensorflow as tf
 from collections import OrderedDict
 
 
-def _absolute_position(groundtruth):
+def _quat_to_transformation(groundtruth):
     t = groundtruth[0:3]
     q = groundtruth[3:7]
 
@@ -20,27 +20,60 @@ def _absolute_position(groundtruth):
     psi = np.arctan2(2 * (q[0] * q[3] + q[1] * q[2]), 1 - 2 * (np.square(q[2]) + np.square(q[3])))
 
     # compute rotation matrix
-    rot_mat = np.zeros((3, 3))
-    rot_mat[0, 0] = np.cos(theta) * np.cos(phi)
-    rot_mat[1, 0] = np.cos(theta) * np.sin(phi)
-    rot_mat[2, 0] = -np.sin(theta)
+    trans = np.zeros((4, 4))
+    trans[0, 0] = np.cos(theta) * np.cos(phi)
+    trans[1, 0] = np.cos(theta) * np.sin(phi)
+    trans[2, 0] = -np.sin(theta)
+    trans[3, 0] = 0
 
-    rot_mat[0, 1] = np.sin(psi) * np.sin(theta) * np.cos(phi) - np.cos(psi) * np.sin(phi)
-    rot_mat[1, 1] = np.sin(psi) * np.sin(theta) * np.sin(phi) + np.cos(psi) * np.cos(phi)
-    rot_mat[2, 1] = np.sin(psi) * np.cos(theta)
+    trans[0, 1] = np.sin(psi) * np.sin(theta) * np.cos(phi) - np.cos(psi) * np.sin(phi)
+    trans[1, 1] = np.sin(psi) * np.sin(theta) * np.sin(phi) + np.cos(psi) * np.cos(phi)
+    trans[2, 1] = np.sin(psi) * np.cos(theta)
+    trans[3, 1] = 0
 
-    rot_mat[0, 2] = np.cos(psi) * np.sin(theta) * np.cos(phi) + np.sin(psi) * np.sin(phi)
-    rot_mat[1, 2] = np.cos(psi) * np.sin(theta) * np.sin(phi) - np.sin(psi) * np.cos(phi)
-    rot_mat[2, 2] = np.cos(psi) * np.cos(theta)
+    trans[0, 2] = np.cos(psi) * np.sin(theta) * np.cos(phi) + np.sin(psi) * np.sin(phi)
+    trans[1, 2] = np.cos(psi) * np.sin(theta) * np.sin(phi) - np.sin(psi) * np.cos(phi)
+    trans[2, 2] = np.cos(psi) * np.cos(theta)
+    trans[3, 2] = 0
 
+    trans[0, 3] = t[0]
+    trans[1, 3] = t[1]
+    trans[2, 3] = t[2]
+    trans[3, 3] = 1
+
+    return trans
+
+
+def _trans_to_twist(trans):
     # compute angular velocities
-    w_abs = np.arccos((np.trace(rot_mat) - 1) / 2)
+    w_abs = np.arccos((np.trace(trans) - 1) / 2)
     w = np.zeros(3)
-    w[0] = 1 / (2 * np.sin(w_abs)) * (rot_mat[2, 1] - rot_mat[1, 2]) * w_abs
-    w[1] = 1 / (2 * np.sin(w_abs)) * (rot_mat[0, 2] - rot_mat[2, 0]) * w_abs
-    w[2] = 1 / (2 * np.sin(w_abs)) * (rot_mat[1, 0] - rot_mat[0, 1]) * w_abs
+    w[0] = 1 / (2 * np.sin(w_abs)) * (trans[2, 1] - trans[1, 2]) * w_abs
+    w[1] = 1 / (2 * np.sin(w_abs)) * (trans[0, 2] - trans[2, 0]) * w_abs
+    w[2] = 1 / (2 * np.sin(w_abs)) * (trans[1, 0] - trans[0, 1]) * w_abs
 
-    return np.concatenate((t, w), 0)
+    w_hat = np.zeros((3, 3))
+    w_hat[0] = [0, -w[2], w[1]]
+    w_hat[1] = [w[2], 0, -w[0]]
+    w_hat[2] = [-w[1], w[0], 0]
+
+    w_abs = np.linalg.norm(w)
+
+    w = np.matrix(w)
+    w_hat = np.matrix(w_hat)
+    omega = (np.matrix((np.eye(3) - trans[0:3, 0:3]))*w_hat + w * np.transpose(w)) / (w_abs*w_abs),
+    v = np.transpose(np.linalg.inv(omega) * np.matrix(trans[0:3, 3:4]))
+
+    return np.concatenate((v, w), 1)
+
+
+def _inverse_trans(trans):
+    inv_trans = np.zeros((4, 4))
+    inv_trans[0:3, 0:3] = np.transpose(trans[0:3, 0:3])
+    inv_trans[0:3, 3:4] = np.matrix(inv_trans[0:3, 0:3]) * np.matrix(trans[0:3, 3:4])
+    inv_trans[3, 3] = 1
+
+    return inv_trans
 
 
 def _find_label(groundtruth, timestamp):
@@ -91,15 +124,17 @@ class QueuedInputProvider:
             
             self.logger.info('The size of dataset:{} is {}'.format(filename, dataset_size))
             # compute absolute position
-            abs_pos = np.zeros((dataset_size, 6))
-            rel_pos = np.zeros((dataset_size, 6))
+            twist = np.zeros((sequence_length, 6))
+            r_old = np.zeros((4, 4))
             for ind in range(sequence_length):
                 i = ind + start_point
-                abs_pos[i] = _absolute_position(groundtruth[:, 1:][_find_label(groundtruth[:, 0], associations[i, 0])].astype(np.float32))
+                quat = groundtruth[:, 1:][_find_label(groundtruth[:, 0], associations[i, 0])].astype(np.float32)
+                trans_new = _quat_to_transformation(quat)
                 if i > 0:
-                    rel_pos[i] = abs_pos[i] - abs_pos[i - 1]
+                    twist[ind] = _trans_to_twist(_inverse_trans(trans_old) * trans_new)
                 else:
-                    rel_pos[i] = np.zeros(6)
+                    twist[ind] = np.zeros(6)
+                trans_old = trans_new
 
             rgb_filepaths = associations[start_point:start_point + sequence_length, 1]
             depth_filepaths = associations[start_point:start_point + sequence_length, 3]
@@ -108,7 +143,7 @@ class QueuedInputProvider:
             rgb_filepaths_tensor = tf.convert_to_tensor(rgb_filepaths)
             depth_filepaths_tensor = tf.convert_to_tensor(depth_filepaths)
 
-            input_queue = tf.train.slice_input_producer([rgb_filepaths_tensor, depth_filepaths_tensor, rel_pos], shuffle=False)
+            input_queue = tf.train.slice_input_producer([rgb_filepaths_tensor, depth_filepaths_tensor, twist], shuffle=False)
         
             image, outparams = self.read_rgbd_data(input_queue)
             images_batch.append(image)
@@ -151,10 +186,9 @@ class QueuedInputProvider:
 
         image = tf.concat(2, (png_rgb, png_depth))
 
-        rel_pos = input_queue[2]
-        rel_pos = tf.reshape(rel_pos, [1, 1, 6])
+        twist = tf.reshape(input_queue[2], [1, 1, 6])
         
-        return tf.cast(image, tf.float32), tf.cast(rel_pos, tf.float32)
+        return tf.cast(image, tf.float32), tf.cast(twist, tf.float32)
 
     def get_batch_size(self):
         return self.batch_size
