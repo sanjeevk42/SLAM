@@ -59,6 +59,9 @@ def _trans_to_twist(trans):
 
     w_abs = np.linalg.norm(w)
 
+    if w_abs == 0:
+        return np.zeros(6)
+
     w = np.matrix(w)
     w_hat = np.matrix(w_hat)
     omega = (np.matrix((np.eye(3) - trans[0:3, 0:3]))*w_hat + w * np.transpose(w)) / (w_abs*w_abs)
@@ -146,7 +149,7 @@ class QueuedInputProvider:
             self.logger.info('The size of dataset:{} is {}'.format(filename, dataset_size))
             # compute absolute position
             twist = np.zeros((sequence_length, 6))
-            r_old = np.zeros((4, 4))
+            trans_old = np.zeros((4, 4))
             for ind in range(sequence_length):
                 i = ind + start_point
                 quat = groundtruth[:, 1:][_find_label(groundtruth[:, 0], associations[i, 0])].astype(np.float32)
