@@ -209,8 +209,8 @@ class QueuedInputProvider:
         png_rgb = tf.image.resize_images(png_rgb, width, height)
         png_depth = tf.image.resize_images(png_depth, width, height)
 
-        # Adjust brightness of depth image
-        png_depth = tf.image.adjust_brightness(png_depth, 1)
+        # Normalize depth
+        png_depth = tf.image.adjust_contrast(png_depth, 1) * 255.0/tf.reduce_max(png_depth)
 
         image = tf.concat(2, (png_rgb, png_depth))
 
