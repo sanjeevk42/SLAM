@@ -144,6 +144,10 @@ class QueuedInputProvider:
             groundtruth = np.loadtxt(os.path.join(filename, "groundtruth.txt"), dtype="str", unpack=False)
             dataset_size = associations.shape[0]
 
+            # select every nth image
+            n = 1
+            associations = associations[0::n]
+
             start_point = np.random.randint(0, dataset_size - sequence_length)
             
             self.logger.info('The size of dataset:{} is {}'.format(filename, dataset_size))
