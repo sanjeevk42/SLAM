@@ -224,15 +224,33 @@ class QueuedInputProvider:
         return self.batch_size
 
     def _point_cloud(self, depth_image, dataset_int):
-        x = []
-        y = []
-        z = []
-        for v in range(depth_image.height):
-            for u in range(depth_image.width):
-                z.append(depth_image[v, u] / self.FACTOR)
-                x.append((u - self.CX[dataset_int - 1]) * z[-1] / self.FX[dataset_int - 1])
-                y.append((v - self.CY[dataset_int - 1]) * z[-1] / self.FY[dataset_int - 1])
-        return [x, y, z]
+        pointcloud = np.zeros((depth_image.shape[0] * depth_image.shape[1], 3))
+        for v in range(depth_image.shape[0]):
+            for u in range(depth_image.shape[1]):
+                pointcloud[u*v, 2] = depth_image[v, u] / self.FACTOR
+                pointcloud[u*v, 0] = (u - self.CX[dataset_int-1]) * pointcloud[u*v, 2] / self.FX[dataset_int-1]
+                pointcloud[u*v, 1] = (v - self.CY[dataset_int-1]) * pointcloud[u*v, 2] / self.FY[dataset_int-1]
+        return pointcloud[np.all(pointcloud != 0.0, 1)]
+
+
+    def _transform_pointcloud(self, pointcloud, trans):
+        transformed_pointcloud = np.matrix(pointcloud) * np.transpose(np.matrix(trans[0:3, 0:3])) + np.transpose(trans[0:3, 3:4])
+        return transformed_pointcloud
+
+
+    def _overlap(self, pointcloud_ref, pointcloud):
+        max_x = np.max(pointcloud_ref[:, 0])
+        max_y = np.max(pointcloud_ref[:, 1])
+        max_z = np.max(pointcloud_ref[:, 2])
+        min_x = np.min(pointcloud_ref[:, 0])
+        min_y = np.min(pointcloud_ref[:, 1])
+        min_z = np.min(pointcloud_ref[:, 2])
+        c = 0.0
+        for i in range(pointcloud.shape[0]):
+            if pointcloud[i, 0] > max_x or pointcloud[i, 0] < min_x or pointcloud[i, 1] > max_y or \
+                            pointcloud[i, 1] < min_y or pointcloud[i, 2] > max_z or pointcloud[i, 2] < min_z:
+                c += 1
+        return (pointcloud.shape[0] - c)/pointcloud.shape[0]
 
 
 class SimpleInputProvider:
