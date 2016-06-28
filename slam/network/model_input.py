@@ -227,9 +227,9 @@ class QueuedInputProvider:
         pointcloud = np.zeros((depth_image.shape[0] * depth_image.shape[1], 3))
         for v in range(depth_image.shape[0]):
             for u in range(depth_image.shape[1]):
-                pointcloud[u*v, 2] = depth_image[v, u] / self.FACTOR
-                pointcloud[u*v, 0] = (u - self.CX[dataset_int-1]) * pointcloud[u*v, 2] / self.FX[dataset_int-1]
-                pointcloud[u*v, 1] = (v - self.CY[dataset_int-1]) * pointcloud[u*v, 2] / self.FY[dataset_int-1]
+                pointcloud[u * v, 2] = depth_image[v, u] / self.FACTOR
+                pointcloud[u * v, 0] = (u - self.CX[dataset_int - 1]) * pointcloud[u * v, 2] / self.FX[dataset_int - 1]
+                pointcloud[u * v, 1] = (v - self.CY[dataset_int - 1]) * pointcloud[u * v, 2] / self.FY[dataset_int - 1]
         return pointcloud[np.all(pointcloud != 0.0, 1)]
 
 
@@ -250,45 +250,55 @@ class QueuedInputProvider:
             if pointcloud[i, 0] > max_x or pointcloud[i, 0] < min_x or pointcloud[i, 1] > max_y or \
                             pointcloud[i, 1] < min_y or pointcloud[i, 2] > max_z or pointcloud[i, 2] < min_z:
                 c += 1
-        return (pointcloud.shape[0] - c)/pointcloud.shape[0]
+        return (pointcloud.shape[0] - c) / pointcloud.shape[0]
 
 
 class SimpleInputProvider:
 
-    class InputBatch:
+    class SequenceBatch:
+        
+        def __init__(self):
+            self.rgb_filenames = []
+            self.depth_filenames = []
+            self.rgbd_images = []
+            self.groundtruths = []
+        
+    class SequenceBatchIterator:
     
         def __init__(self, input_provider, seqdir_vs_offset, sequence_length):
             self.counter = 0
             self.seqdir_vs_offset = seqdir_vs_offset
             self.input_provider = input_provider
             self.sequence_length = sequence_length
+            self.logger = get_logger()
         
         def __iter__(self):
             return self
         
         @time_it
         def next(self):
-            rgbd_batch = []
-            groundtruth_batch = []
+            self.logger.debug('Going to fetch next batch of frames. batch size:{}, frame no.:{} '.format(len(self.seqdir_vs_offset), self.counter))
+            sequence_batch = SimpleInputProvider.SequenceBatch()
             if self.counter < self.sequence_length:
                 for i, ele in enumerate(self.seqdir_vs_offset):
                     seqdir = ele[0]
                     offset = ele[1]
-                    rgbd_file = self.input_provider.get_rgbd_file(seqdir, offset)
-                    rgbd_batch.append(rgbd_file)
+                    rgb_filename, depth_filename, rgbd_file = self.input_provider.get_rgbd_file(seqdir, offset)
                     groundtruth = self.input_provider.get_ground_truth(seqdir, offset)
-                    groundtruth_batch.append(groundtruth)
+                    sequence_batch.rgbd_images.append(rgbd_file)
+                    sequence_batch.groundtruths.append(groundtruth)
+                    sequence_batch.rgb_filenames.append(rgb_filename)
+                    sequence_batch.depth_filenames.append(depth_filename)
                     self.seqdir_vs_offset[i][1] = offset + 1
                 self.counter += 1
-                return np.array(rgbd_batch), np.array(groundtruth_batch)
+                return sequence_batch
             else:
                 raise StopIteration()
         
     BASE_DATA_DIR = '/usr/data/rgbd_datasets/tum_rgbd_benchmark/'
     
-    def __init__(self):
-        self.config_provider = get_config_provider()
-        training_filenames = self.config_provider.training_filenames()
+    def __init__(self, filename_provider):
+        training_filenames = filename_provider()
         self.sequence_dirs = [os.path.join(self.BASE_DATA_DIR, filename) for filename in training_filenames]
         
         self.seq_dir_map = {}
@@ -315,7 +325,7 @@ class SimpleInputProvider:
             
             self.seq_dir_map[seq_dir]['relpos'] = twist
             
-    def get_next_batch(self, sequence_length, batch_size):
+    def sequence_batch_itr(self, sequence_length, batch_size):
         random.shuffle(self.sequence_dirs)
         training_sequences = self.sequence_dirs
         total_sequences = len(training_sequences)
@@ -327,7 +337,7 @@ class SimpleInputProvider:
             offset = random.randint(0, total_frames - sequence_length)
             seqdir_vs_offset.append([seq_dir, offset])
             
-        input_batch = self.InputBatch(self, seqdir_vs_offset, sequence_length)
+        input_batch = self.SequenceBatchIterator(self, seqdir_vs_offset, sequence_length)
         return input_batch
     
     def get_rgbd_file(self, dirname, offset):
@@ -353,7 +363,7 @@ class SimpleInputProvider:
         # Resize
         rgbd_img = transform.resize(rgbd_img, [width, height], preserve_range=True)
 
-        return rgbd_img.astype(np.float32)
+        return rgb_filename, depth_filename, rgbd_img.astype(np.float32)
     
     def get_ground_truth(self, dirname, offset):
         groundtruth = self.seq_dir_map[dirname]['relpos'][offset, :]
@@ -363,14 +373,12 @@ queued_input_provider = QueuedInputProvider()
 def get_queued_input_provider():
     return queued_input_provider
 
-simple_input_provider = SimpleInputProvider()
-def get_simple_input_provider():
-    return simple_input_provider
+def get_simple_input_provider(filename_provider):
+    return SimpleInputProvider(filename_provider)
 
 if __name__ == '__main__':
-    input_provider = SimpleInputProvider()
     
-    input_batch = input_provider.get_next_batch(100, 20)
+    input_batch = get_simple_input_provider().sequence_batch_itr(100, 20)
     for i, batch in enumerate(input_batch):
         print i, 'groundtruth: ', batch[1][0].shape, 'rgbd shape:', batch[0][0].shape
 

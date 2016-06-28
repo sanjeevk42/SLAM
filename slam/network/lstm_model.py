@@ -4,9 +4,6 @@ This constructs the graph of the LSTM model
 
 from tensorflow.python.ops.rnn_cell import LSTMCell, MultiRNNCell
 
-from slam.network.model_input import get_queued_input_provider
-from slam.network.summary_helper import add_activation_summary, \
-    add_loss_summaries
 import tensorflow as tf
 
 
@@ -15,7 +12,7 @@ class LSTMmodel:
     """
     TODO: Implement tf.saver or initialization from file
     """
-    def __init__(self, model_input, layer_size, layers, output_dim, ground_truth, batch_size):
+    def __init__(self, model_input, layer_size, layers, output_dim, ground_truth, batch_size, init_state):
         self.model_input = model_input
         self.batch_size = batch_size
         self.layer_size = layer_size
@@ -33,15 +30,15 @@ class LSTMmodel:
             print("%i layers created" % self.layers)
             self.output_layer = self.__add_output_layer("fc_out", cell_output, self.layer_size, self.output_dim)
             
-            add_activation_summary(self.output_layer)
             self.output_layer = tf.Print(self.output_layer, [self.output_layer, tf.convert_to_tensor(self.ground_truth)],
                                           'Value of output layer and ground truth:', summarize=6)
-            return self.output_layer, rnn_cell.state_size, self.init_state
+            
+            tf.histogram_summary('lstm_output', self.output_layer)
+            
+            return self.output_layer
 
     def __init_state(self):
         return tf.zeros([self.batch_size, 2 * self.layer_size * self.layers], tf.float32)
-        
-
 
     def __add_output_layer(self, scope_name, layer_input, input_dim, output_dim):
         with tf.variable_scope(scope_name):
@@ -53,10 +50,8 @@ class LSTMmodel:
         
     
     def add_loss(self, loss_weight):
-        self.loss = tf.reduce_sum(tf.pow(tf.matmul(self.output_layer - self.ground_truth, loss_weight), 2))
-        tf.scalar_summary('loss', self.loss)
-        add_activation_summary(self.output_layer)
-#         tf.add_to_collection('losses', self.loss)
+        self.loss = tf.reduce_sum(tf.pow(tf.matmul(self.output_layer - self.ground_truth, loss_weight), 2)) / self.batch_size
+        tf.scalar_summary('lstm_loss', self.loss)
         return self.loss
     
     def add_optimizer(self):
@@ -65,8 +60,6 @@ class LSTMmodel:
         learning_rate = tf.train.exponential_decay(0.01, self.global_step, 50,
                                    0.1, staircase=True)
         
-#         loss_averages_op = add_loss_summaries(self.loss)
-#         with tf.control_dependencies([loss_averages_op]):
         optimizer = tf.train.GradientDescentOptimizer(learning_rate)
         gradients = optimizer.compute_gradients(self.loss)
         

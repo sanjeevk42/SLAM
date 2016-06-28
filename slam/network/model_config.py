@@ -4,7 +4,7 @@ import json
 class ModelConfigProvider:
     
     def __init__(self):
-        with open('resources/model.config') as f:
+        with open('../resources/model.config') as f:
             contents = f.read()
         self.config = json.loads(contents, encoding='utf-8')
     
@@ -16,6 +16,9 @@ class ModelConfigProvider:
     
     def lstm_layers(self):
         return self.config['train']['model']['lstm_layers']
+    
+    def cnn_output_dim(self):
+        return self.config['train']['model']['cnn_output_dim']
     
     def epoch(self):
         return self.config['train']['model']['epoch']

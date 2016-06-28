@@ -5,7 +5,6 @@ This constructs the graph for VGG16 CNN model.
 import numpy as np
 from slam.network.model_input import get_queued_input_provider, \
     get_simple_input_provider
-from slam.network.summary_helper import add_activation_summary
 from slam.utils.logging_utils import get_logger
 from slam.utils.time_utils import time_it
 import tensorflow as tf
@@ -14,12 +13,14 @@ from slam.network.model_config import get_config_provider
 
 class VGG16Model:
     
-    def __init__(self, rgbd_input_batch, output_dim):
+    def __init__(self, batch_size, rgbd_input_batch, output_dim):
         self.input_provider = get_queued_input_provider()
         self.rgbd_input_batch = rgbd_input_batch
         self.output_dim = output_dim
         self.logger = get_logger()
-        self.initial_params = np.load('../../resources/VGG_16_4ch.npy').item()
+        self.batch_size = batch_size
+        self.total_weights = 0
+        self.initial_params = np.load('../resources/VGG_16_4ch.npy').item()
         self.initial_params = {key.encode('utf-8'):self.initial_params[key] for key in self.initial_params}
         self.logger.info('Weight keys:{}'.format(self.initial_params.keys()))
     """
@@ -29,9 +30,6 @@ class VGG16Model:
     """
     def build_graph(self):
         with tf.variable_scope('vgg16'):
-            # # TODO: Need to get the input and output placeholder tensors from input provider...
-#             conv_input = tf.placeholder(tf.float32, shape=[self.batch_size] + self.image_shape)
-#             conv_output = tf.placeholder(tf.float32, shape=[self.batch_size, 1, 1, self.output_dim])
             
             filter_size = [3, 3]
             conv1 = self.__add_weight_layer('conv1', self.rgbd_input_batch, 2, filter_size, 4, 64, should_init_wb=False)
@@ -45,9 +43,9 @@ class VGG16Model:
             
             self.output_layer = tf.squeeze(fc3, squeeze_dims=[1 , 2])
             
-            add_activation_summary(self.output_layer)
-#             self.__add_loss()
-#             self.__add_optimizer()
+            tf.histogram_summary('cnn_output', self.output_layer)
+            self.logger.info('Total weights: {}'.format(self.total_weights))
+            
             return self.output_layer
     
     """
@@ -82,6 +80,7 @@ class VGG16Model:
         with tf.variable_scope(scope_name):
             weights_shape = filter_size + [input_channels, output_channels]
             initial_weights, initial_bias = self.__get_init_params(scope_name, should_init_wb)
+            self.total_weights += weights_shape[0] * weights_shape[1] * weights_shape[2] * weights_shape[3]
             self.logger.info('Weight shape:{} for scope:{}'.format(weights_shape, tf.get_variable_scope().name))
             conv_weights = self.__get_variable('initial_params', weights_shape, tf.float32,
                                             initializer=initial_weights)
@@ -105,12 +104,15 @@ class VGG16Model:
         return initial_weights, initial_bias
     
     def add_loss(self, loss_weight, ground_truth):
-        self.loss = tf.reduce_sum(tf.pow(tf.matmul(self.output_layer - ground_truth, loss_weight), 2))
+        self.loss = tf.reduce_sum(tf.pow(tf.matmul(self.output_layer - ground_truth, loss_weight), 2)) / self.batch_size
+        tf.scalar_summary('cnn_loss', self.loss)
         return self.loss
     
     def add_optimizer(self):
-        learning_rate = 0.1  # need to make adaptive ...
         self.global_step = tf.Variable(0, trainable=False)
+        
+        learning_rate = tf.train.exponential_decay(0.01, self.global_step, 5,
+                                   0.1, staircase=True)
         optimizer = tf.train.GradientDescentOptimizer(learning_rate)
         gradients = optimizer.compute_gradients(self.loss)
         self.apply_gradient_op = optimizer.apply_gradients(gradients, self.global_step)
@@ -120,18 +122,12 @@ class VGG16Model:
     Start training the model.
     """
     @time_it
-    def train_model(self, max_steps):
+    def start_training(self, max_steps):
         session = tf.Session()
         session.run(tf.initialize_all_variables())
         for step in xrange(max_steps):
             self.logger.info('Executing step:{}'.format(step))
             session.run([self.apply_gradient_op, self.loss])
-    
-    def evaluate_model(self):
-        pass
-    
-    def predict(self):
-        pass
     
     def __get_variable(self, name, shape, dtype, initializer):
         with tf.device('/cpu:0'):
@@ -139,9 +135,9 @@ class VGG16Model:
         return var
 
 if __name__ == '__main__':
-    batch_size = 10
     img_h = 224
     img_w = 224
+    LOG_DIR = '/usr/prakt/s085/logs' 
     
     logger = get_logger()    
     config_provider = get_config_provider()
@@ -152,26 +148,33 @@ if __name__ == '__main__':
     rgbd_input_batch = tf.placeholder(tf.float32, [batch_size, img_h, img_w, 4])
     groundtruth_batch = tf.placeholder(tf.float32, [batch_size, 6])
     
-    vgg_model = VGG16Model(rgbd_input_batch, 6)
+    vgg_model = VGG16Model(batch_size, rgbd_input_batch, 6)
     vgg_model.build_graph()
     
     loss_weight = tf.placeholder(tf.float32, [6, 6])
-    loss = vgg_model.add_loss(loss_weight,groundtruth_batch)
+    loss = vgg_model.add_loss(loss_weight, groundtruth_batch)
     apply_gradient_op = vgg_model.add_optimizer()
     
     input_provider = get_simple_input_provider()
     session = tf.Session()
     session.run(tf.initialize_all_variables())
     
+    merged_summary = tf.merge_all_summaries()
+    summary_writer = tf.train.SummaryWriter(LOG_DIR, session.graph)
+    
     for step in xrange(epoch):
         logger.info('Executing step:{}'.format(step))
-        next_batch = input_provider.get_next_batch(sequence_length, batch_size)
-        for i, batch in enumerate(next_batch):
+        next_batch = input_provider.sequence_batch_itr(sequence_length, batch_size)
+        for i, sequence_batch in enumerate(next_batch):
             logger.info('Step:{} Frame:{}'.format(step, i))
-            loss_weight_matrix = np.identity(6) if i == 0 else np.zeros([6, 6])
-            loss_value = session.run([apply_gradient_op, loss], feed_dict={rgbd_input_batch:batch[0],
-                                        groundtruth_batch:batch[1], loss_weight:loss_weight_matrix})
+            logger.debug('Using rgb files:{}, depth files:{}, groundtruths:{} in current batch'.format(sequence_batch.rgb_filenames,
+                                                                         sequence_batch.depth_filenames, sequence_batch.groundtruths))
+            loss_weight_matrix = np.zeros([6, 6]) if i == 0 else np.identity(6)
+            result = session.run([apply_gradient_op, loss, merged_summary], feed_dict={rgbd_input_batch:sequence_batch.rgbd_images,
+                                        groundtruth_batch:sequence_batch.groundtruths, loss_weight:loss_weight_matrix})
+            loss_value = result[1]
             logger.info('Loss :{}'.format(loss_value))
+        summary_writer.add_summary(result[2], step)
         
     session.close()
 
