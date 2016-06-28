@@ -164,30 +164,35 @@ class QueuedInputProvider:
             
             associations = np.loadtxt(os.path.join(filename, "associate.txt"), dtype="str", unpack=False)
             groundtruth = np.loadtxt(os.path.join(filename, "groundtruth.txt"), dtype="str", unpack=False)
-            dataset_size = associations.shape[0]
 
             # select every nth image
             n = 1
             associations = associations[0::n]
 
-            start_point = np.random.randint(0, dataset_size - sequence_length)
-            
+            dataset_size = associations.shape[0]
+
+            sequence_length = np.min([300, dataset_size])
+            start_point = 0
+            if dataset_size > 300:
+                start_point = np.random.randint(0, dataset_size - sequence_length)
+
+            associations = associations[start_point:start_point + sequence_length, :]
+
             self.logger.info('The size of dataset:{} is {}'.format(filename, dataset_size))
-            # compute absolute position
             twist = np.zeros((sequence_length, 6))
             trans_old = np.zeros((4, 4))
-            for ind in range(sequence_length):
-                i = ind + start_point
+
+            for i in range(sequence_length):
                 quat = groundtruth[:, 1:][_find_label(groundtruth[:, 0], associations[i, 0])].astype(np.float32)
                 trans_new = _quat_to_transformation(quat)
                 if i > 0:
-                    twist[ind] = _trans_to_twist(_inverse_trans(trans_old) * trans_new)
+                    twist[i] = _trans_to_twist(np.dot(_inverse_trans(trans_old), trans_new))
                 else:
-                    twist[ind] = np.zeros(6)
+                    twist[i] = np.zeros(6)
                 trans_old = trans_new
 
-            rgb_filepaths = associations[start_point:start_point + sequence_length, 1]
-            depth_filepaths = associations[start_point:start_point + sequence_length, 3]
+            rgb_filepaths = associations[:, 1]
+            depth_filepaths = associations[:, 3]
             rgb_filepaths = [os.path.join(filename, filepath) for filepath in rgb_filepaths]
             depth_filepaths = [os.path.join(filename, filepath) for filepath in depth_filepaths]
             rgb_filepaths_tensor = tf.convert_to_tensor(rgb_filepaths)
