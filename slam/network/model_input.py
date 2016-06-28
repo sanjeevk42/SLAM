@@ -66,8 +66,8 @@ def _trans_to_twist(trans):
 
     w = np.matrix(w)
     w_hat = np.matrix(w_hat)
-    omega = (np.matrix((np.eye(3) - trans[0:3, 0:3]))*w_hat + w * np.transpose(w)) / (w_abs*w_abs)
-    v = np.transpose(np.linalg.inv(omega) * np.matrix(trans[0:3, 3]))
+    omega = (np.matrix((np.eye(3) - trans[0:3, 0:3])) * w_hat + w * np.transpose(w)) / (w_abs * w_abs)
+    v = np.transpose(np.linalg.inv(omega) * np.transpose(np.matrix(trans[0:3, 3])))
 
     return np.concatenate((v, w), 1)
 
@@ -75,9 +75,9 @@ def _trans_to_twist(trans):
 def _inverse_trans(trans):
     inv_trans = np.zeros((4, 4))
     inv_trans[0:3, 0:3] = np.transpose(trans[0:3, 0:3])
-    inv_trans[0:3, 3] = -np.matrix(inv_trans[0:3, 0:3]) * np.matrix(trans[0:3, 3])
+    inv_trans[0:3, 3] = np.squeeze(-np.matrix(inv_trans[0:3, 0:3]) * np.transpose(np.matrix(trans[0:3, 3])))
     inv_trans[3, 3] = 1
-
+    
     return inv_trans
 
 
@@ -91,7 +91,7 @@ def _twist_to_trans(twist):
     w_hat[2] = [-w[0, 1], w[0, 0], 0]
     w_hat = np.matrix(w_hat)
 
-    rot = np.eye(3) + w_hat/w_abs * np.sin(w_abs) + w_hat * w_hat / (w_abs * w_abs) * (1 - np.cos(w_abs))
+    rot = np.eye(3) + w_hat / w_abs * np.sin(w_abs) + w_hat * w_hat / (w_abs * w_abs) * (1 - np.cos(w_abs))
 
     trans = (np.matrix((np.eye(3) - rot)) * w_hat * np.transpose(v) + np.transpose(w) * w * np.transpose(v)) / (w_abs * w_abs)
 
@@ -212,7 +212,7 @@ class QueuedInputProvider:
         png_depth = tf.image.resize_images(png_depth, width, height)
 
         # Normalize depth
-        png_depth = png_depth * 255.0/tf.reduce_max(png_depth)
+        png_depth = png_depth * 255.0 / tf.reduce_max(png_depth)
 
         image = tf.concat(2, (png_rgb, png_depth))
 
@@ -302,16 +302,18 @@ class SimpleInputProvider:
             self.seq_dir_map[seq_dir]['groundtruth'] = groundtruth
             
             sequence_size = associations.shape[0]
-            abs_pos = np.zeros((sequence_size, 6))
-            rel_pos = np.zeros((sequence_size, 6))
+            twist = np.zeros((sequence_size, 6))
+            trans_old = np.zeros((4, 4))
             for i in range(sequence_size):
-                abs_pos[i] = _absolute_position(groundtruth[:, 1:][_find_label(groundtruth[:, 0],
-                                                         associations[i, 0])].astype(np.float32))
+                quat = groundtruth[:, 1:][_find_label(groundtruth[:, 0], associations[i, 0])].astype(np.float32)
+                trans_new = _quat_to_transformation(quat)
                 if i > 0:
-                    rel_pos[i] = abs_pos[i] - abs_pos[i - 1]
+                    twist[i] = _trans_to_twist(_inverse_trans(trans_old) * trans_new)
                 else:
-                    rel_pos[i] = np.zeros(6)
-            self.seq_dir_map[seq_dir]['relpos'] = rel_pos
+                    twist[i] = np.zeros(6)
+                trans_old = trans_new
+            
+            self.seq_dir_map[seq_dir]['relpos'] = twist
             
     def get_next_batch(self, sequence_length, batch_size):
         random.shuffle(self.sequence_dirs)
@@ -341,18 +343,15 @@ class SimpleInputProvider:
         rgb_img = ndimage.imread(rgb_filename)
         depth_img = ndimage.imread(depth_filename)
         width = height = 224
+
         # Reshape
-#         width_original = 480
-#         height_original = 640
         depth_img = np.reshape(depth_img, list(depth_img.shape) + [1])
-#         rgb_img = np.reshape(rgb_img, [width_original, height_original, 3])
+        depth_img = 255 * depth_img / np.max(depth_img)
+
         rgbd_img = np.concatenate((rgb_img, depth_img), 2)
 
         # Resize
-        rgbd_img = transform.resize(rgbd_img, [width, height, 4])
-
-        # Adjust brightness of depth image
-        # png_depth = tf.image.adjust_brightness(png_depth, 1)
+        rgbd_img = transform.resize(rgbd_img, [width, height], preserve_range=True)
 
         return rgbd_img.astype(np.float32)
     
