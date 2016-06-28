@@ -9,7 +9,7 @@ import tensorflow as tf
 
 logger = get_logger()
 LOG_DIR = '/usr/prakt/s085/logs' 
-LEARNED_WEIGHTS_FILENAME = '../resources/learned_weights.ckpt'
+LEARNED_WEIGHTS_FILENAME = 'resources/learned_weights.ckpt'
 img_h = 224
 img_w = 224
 

@@ -20,7 +20,7 @@ class VGG16Model:
         self.logger = get_logger()
         self.batch_size = batch_size
         self.total_weights = 0
-        self.initial_params = np.load('../resources/VGG_16_4ch.npy').item()
+        self.initial_params = np.load('resources/VGG_16_4ch.npy').item()
         self.initial_params = {key.encode('utf-8'):self.initial_params[key] for key in self.initial_params}
         self.logger.info('Weight keys:{}'.format(self.initial_params.keys()))
     """

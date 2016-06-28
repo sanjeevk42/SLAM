@@ -15,27 +15,25 @@ import tensorflow as tf
 def _quat_to_transformation(groundtruth):
     t = groundtruth[0:3]
     q = groundtruth[3:7]
+    q_x = q[0]
+    q_y = q[1]
+    q_z = q[2]
+    q_w = q[3]
 
-    # compute euler angles
-    phi = np.arctan2(2 * (q[0] * q[1] + q[2] * q[3]), 1 - 2 * (np.square(q[1]) + np.square(q[2])))
-    theta = np.arcsin(2 * (q[0] * q[2] - q[3] * q[1]))
-    psi = np.arctan2(2 * (q[0] * q[3] + q[1] * q[2]), 1 - 2 * (np.square(q[2]) + np.square(q[3])))
-
-    # compute rotation matrix
     trans = np.zeros((4, 4))
-    trans[0, 0] = np.cos(theta) * np.cos(phi)
-    trans[1, 0] = np.cos(theta) * np.sin(phi)
-    trans[2, 0] = -np.sin(theta)
+    trans[0, 0] = q_w * q_w + q_x * q_x - q_y * q_y - q_z * q_z
+    trans[1, 0] = 2 * (q_x * q_y + q_w * q_z)
+    trans[2, 0] = 2 * (q_z * q_x - q_w * q_y)
     trans[3, 0] = 0
 
-    trans[0, 1] = np.sin(psi) * np.sin(theta) * np.cos(phi) - np.cos(psi) * np.sin(phi)
-    trans[1, 1] = np.sin(psi) * np.sin(theta) * np.sin(phi) + np.cos(psi) * np.cos(phi)
-    trans[2, 1] = np.sin(psi) * np.cos(theta)
+    trans[0, 1] = 2 * (q_x * q_y - q_w * q_z)
+    trans[1, 1] = q_w * q_w - q_x * q_x + q_y * q_y - q_z * q_z
+    trans[2, 1] = 2 * (q_y * q_z + q_w * q_x)
     trans[3, 1] = 0
 
-    trans[0, 2] = np.cos(psi) * np.sin(theta) * np.cos(phi) + np.sin(psi) * np.sin(phi)
-    trans[1, 2] = np.cos(psi) * np.sin(theta) * np.sin(phi) - np.sin(psi) * np.cos(phi)
-    trans[2, 2] = np.cos(psi) * np.cos(theta)
+    trans[0, 2] = 2 * (q_z * q_x + q_w * q_y)
+    trans[1, 2] = 2 * (q_y * q_z - q_w * q_x)
+    trans[2, 2] = q_w * q_w - q_x * q_x - q_y * q_y + q_z * q_z
     trans[3, 2] = 0
 
     trans[0, 3] = t[0]
@@ -48,6 +46,9 @@ def _quat_to_transformation(groundtruth):
 
 def _trans_to_twist(trans):
     # compute angular velocities
+    if (np.trace(trans[0:3, 0:3]) - 1) / 2 > 1:
+        return np.zeros(6)
+
     w_abs = np.arccos((np.trace(trans[0:3, 0:3]) - 1) / 2)
     w = np.zeros(3)
     w[0] = 1 / (2 * np.sin(w_abs)) * (trans[2, 1] - trans[1, 2]) * w_abs
@@ -82,8 +83,8 @@ def _inverse_trans(trans):
 
 
 def _twist_to_trans(twist):
-    v = np.matrix(twist[0, 0:3])
-    w = np.matrix(twist[0, 3:6])
+    v = np.matrix(twist[0:3])
+    w = np.matrix(twist[3:6])
     w_abs = np.linalg.norm(w)
     w_hat = np.zeros((3, 3))
     w_hat[0] = [0, -w[0, 2], w[0, 1]]
@@ -100,6 +101,25 @@ def _twist_to_trans(twist):
     tr[3, 3] = 1
 
     return tr
+
+
+def _transform_pointcloud(pointcloud, trans):
+        return np.dot(pointcloud, transform[0:3, 0:3]) + transform[0:3, 3]
+
+
+def _overlap(pointcloud_ref, pointcloud):
+    max_x = np.max(pointcloud_ref[:, 0])
+    max_y = np.max(pointcloud_ref[:, 1])
+    max_z = np.max(pointcloud_ref[:, 2])
+    min_x = np.min(pointcloud_ref[:, 0])
+    min_y = np.min(pointcloud_ref[:, 1])
+    min_z = np.min(pointcloud_ref[:, 2])
+    c = 0.0
+    for i in range(pointcloud.shape[0]):
+        if pointcloud[i, 0] > max_x or pointcloud[i, 0] < min_x or pointcloud[i, 1] > max_y or \
+                        pointcloud[i, 1] < min_y or pointcloud[i, 2] > max_z or pointcloud[i, 2] < min_z:
+            c += 1
+    return (pointcloud.shape[0] - c) / pointcloud.shape[0]
 
 
 def _find_label(groundtruth, timestamp):
@@ -144,30 +164,35 @@ class QueuedInputProvider:
             
             associations = np.loadtxt(os.path.join(filename, "associate.txt"), dtype="str", unpack=False)
             groundtruth = np.loadtxt(os.path.join(filename, "groundtruth.txt"), dtype="str", unpack=False)
-            dataset_size = associations.shape[0]
 
             # select every nth image
             n = 1
             associations = associations[0::n]
 
-            start_point = np.random.randint(0, dataset_size - sequence_length)
-            
+            dataset_size = associations.shape[0]
+
+            sequence_length = np.min([300, dataset_size])
+            start_point = 0
+            if dataset_size > 300:
+                start_point = np.random.randint(0, dataset_size - sequence_length)
+
+            associations = associations[start_point:start_point + sequence_length, :]
+
             self.logger.info('The size of dataset:{} is {}'.format(filename, dataset_size))
-            # compute absolute position
             twist = np.zeros((sequence_length, 6))
             trans_old = np.zeros((4, 4))
-            for ind in range(sequence_length):
-                i = ind + start_point
+
+            for i in range(sequence_length):
                 quat = groundtruth[:, 1:][_find_label(groundtruth[:, 0], associations[i, 0])].astype(np.float32)
                 trans_new = _quat_to_transformation(quat)
                 if i > 0:
-                    twist[ind] = _trans_to_twist(_inverse_trans(trans_old) * trans_new)
+                    twist[i] = _trans_to_twist(np.dot(_inverse_trans(trans_old), trans_new))
                 else:
-                    twist[ind] = np.zeros(6)
+                    twist[i] = np.zeros(6)
                 trans_old = trans_new
 
-            rgb_filepaths = associations[start_point:start_point + sequence_length, 1]
-            depth_filepaths = associations[start_point:start_point + sequence_length, 3]
+            rgb_filepaths = associations[:, 1]
+            depth_filepaths = associations[:, 3]
             rgb_filepaths = [os.path.join(filename, filepath) for filepath in rgb_filepaths]
             depth_filepaths = [os.path.join(filename, filepath) for filepath in depth_filepaths]
             rgb_filepaths_tensor = tf.convert_to_tensor(rgb_filepaths)
