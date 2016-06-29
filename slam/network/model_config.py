@@ -4,7 +4,7 @@ import json
 class ModelConfigProvider:
     
     def __init__(self):
-        with open('resources/model.config') as f:
+        with open('../resources/model.config') as f:
             contents = f.read()
         self.config = json.loads(contents, encoding='utf-8')
     
@@ -31,6 +31,10 @@ class ModelConfigProvider:
         
     def learning_rate(self):
         return self.config['train']['model']['learning_rate']
+
+    def  normalization_epsilon(self):
+        return self.config['train']['model']['normalization_epsilon']
+
 
 config_provider = ModelConfigProvider()
 
