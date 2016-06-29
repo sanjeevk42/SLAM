@@ -13,7 +13,7 @@ from slam.network.model_config import get_config_provider
 
 class VGG16Model:
     
-    def __init__(self, batch_size, rgbd_input_batch, output_dim):
+    def __init__(self, batch_size, rgbd_input_batch, output_dim, normalization_epsilon):
         self.input_provider = get_queued_input_provider()
         self.rgbd_input_batch = rgbd_input_batch
         self.output_dim = output_dim
@@ -23,6 +23,7 @@ class VGG16Model:
         self.initial_params = np.load('resources/VGG_16_4ch.npy').item()
         self.initial_params = {key.encode('utf-8'):self.initial_params[key] for key in self.initial_params}
         self.logger.info('Weight keys:{}'.format(self.initial_params.keys()))
+        self.epsilon = normalization_epsilon
     """
      Builds the execution graph using VGG16-CNN architecture and 
      returns output of the network of shape [self.batch_size, 1, 1, self.output_dim]
@@ -88,7 +89,12 @@ class VGG16Model:
                                             initializer=initial_bias)
             conv = tf.nn.conv2d(layer_input, conv_weights,
                                     strides=[1 , 1 , 1, 1], padding=padding)
-            return tf.nn.relu(tf.nn.bias_add(conv, conv_biases))
+            # add batch normalization layer
+            batch_mean, batch_var = tf.nn.moments(conv, [0], keep_dims=False)
+            scale = tf.Variable(tf.ones([output_channels]))
+            beta = tf.Variable(tf.zeros([output_channels]))
+            conv_normalized = tf.nn.batch_normalization(conv, batch_mean, batch_var, beta, scale, self.epsilon)
+            return tf.nn.relu(tf.nn.bias_add(conv_normalized, conv_biases))
     
     """
     Reads the initial values of weights and biases. 

@@ -22,12 +22,13 @@ def start_training():
     sequence_length = config_provider.sequence_length()
     lstm_layers = config_provider.lstm_layers()
     cnn_output_dim = config_provider.cnn_output_dim()
+    normalization_epsilon = config_provider.normalization_epsilon()
 
     rgbd_input_batch = tf.placeholder(tf.float32, [batch_size, img_h, img_w, 4])
     groundtruth_batch = tf.placeholder(tf.float32, [batch_size, 6])
     lstm_init_state = tf.placeholder(tf.float32, [batch_size, 2 * cnn_output_dim * lstm_layers])
     
-    network = build_complete_network(rgbd_input_batch, groundtruth_batch, lstm_init_state, batch_size, lstm_layers, cnn_output_dim)
+    network = build_complete_network(rgbd_input_batch, groundtruth_batch, lstm_init_state, batch_size, lstm_layers, cnn_output_dim, normalization_epsilon)
     
     lstm_model = network[2]
     
@@ -67,8 +68,8 @@ def start_training():
 
 
 
-def build_complete_network(rgbd_input_batch, groundtruth_batch, lstm_init_state, batch_size, lstm_layers, cnn_output_dim):
-    cnn_model = VGG16Model(batch_size, rgbd_input_batch, cnn_output_dim)
+def build_complete_network(rgbd_input_batch, groundtruth_batch, lstm_init_state, batch_size, lstm_layers, cnn_output_dim, normalization_epsilon):
+    cnn_model = VGG16Model(batch_size, rgbd_input_batch, cnn_output_dim, normalization_epsilon)
     cnn_output = cnn_model.build_graph()
     lstm_model = LSTMmodel(cnn_output, layer_size=cnn_output_dim, layers=lstm_layers, output_dim=6,
                             ground_truth=groundtruth_batch, batch_size=batch_size, init_state=lstm_init_state)
