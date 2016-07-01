@@ -2,7 +2,7 @@ import bisect
 from fileinput import filename
 import os
 import random
-from scipy import ndimage
+from scipy import ndimage, misc
 from skimage import transform
 
 import numpy as np
@@ -132,7 +132,7 @@ class QueuedInputProvider:
     # optical center y
     CY = [255.3, 249.7, 247.6]
     # 16-bit PNG files
-    FACTOR = 5000
+    FACTOR = 1
     
     def __init__(self):
         self.config_provider = get_config_provider()
@@ -159,34 +159,8 @@ class QueuedInputProvider:
             associations = np.loadtxt(os.path.join(filename, "associate.txt"), dtype="str", unpack=False)
             groundtruth = np.loadtxt(os.path.join(filename, "groundtruth.txt"), dtype="str", unpack=False)
 
-            # select every nth image
-            n = 1
-            associations = associations[0::n]
+            twist, rgb_filepaths, depth_filepaths = self._get_data(associations, groundtruth, sequence_length)
 
-            dataset_size = associations.shape[0]
-
-            sequence_length = np.min([300, dataset_size])
-            start_point = 0
-            if dataset_size > 300:
-                start_point = np.random.randint(0, dataset_size - sequence_length)
-
-            associations = associations[start_point:start_point + sequence_length, :]
-
-            self.logger.info('The size of dataset:{} is {}'.format(filename, dataset_size))
-            twist = np.zeros((sequence_length, 6))
-            trans_old = np.zeros((4, 4))
-
-            for i in range(sequence_length):
-                quat = groundtruth[:, 1:][_find_label(groundtruth[:, 0], associations[i, 0])].astype(np.float32)
-                trans_new = _quat_to_transformation(quat)
-                if i > 0:
-                    twist[i] = _trans_to_twist(np.dot(_inverse_trans(trans_old), trans_new))
-                else:
-                    twist[i] = np.zeros(6)
-                trans_old = trans_new
-
-            rgb_filepaths = associations[:, 1]
-            depth_filepaths = associations[:, 3]
             rgb_filepaths = [os.path.join(filename, filepath) for filepath in rgb_filepaths]
             depth_filepaths = [os.path.join(filename, filepath) for filepath in depth_filepaths]
             rgb_filepaths_tensor = tf.convert_to_tensor(rgb_filepaths)
@@ -257,6 +231,89 @@ class QueuedInputProvider:
         uvd[:, 0] = pointcloud[:, 0] * self.FX[dataset_int-1] / uvd[:, 2] + self.CX[dataset_int-1]
         uvd[:, 1] = pointcloud[:, 1] * self.FY[dataset_int-1] / uvd[:, 2] + self.CY[dataset_int-1]
         return uvd
+
+    """
+    Return Twist and Filepaths
+    dynamic drop -> images where the overlap is greater than the specified value are dropped (has to be between 0.0 and 1.0)
+    static drop -> a fixed number of images is dropped
+    """
+    def _get_data(self, associations, groundtruth, sequence_length, dynamic_drop=0.0, static_drop=1):
+        # select every nth image
+        associations = associations[0::static_drop]
+        # define filepaths
+        rgb_filepaths = associations[:, 1]
+        depth_filepaths = associations[:, 3]
+
+        # set dataset length
+        dataset_length = associations.shape[0]
+
+        # initialize twist and old transformation
+        twist = np.zeros((dataset_length, 6))
+        trans_old = np.zeros((4, 4))
+
+        # check if dynamic drop is chosen
+        drop = 0.0 < dynamic_drop <= 1.0
+
+        delete_list = []
+
+        for i in range(dataset_length):
+            # get quaternion
+            quat = groundtruth[:, 1:][_find_label(groundtruth[:, 0], associations[i, 0])].astype(np.float32)
+            # compute transformation matrix from quaternion
+            trans_new = _quat_to_transformation(quat)
+            if drop:
+                # compute pointcloud if dynamic drop is chosen
+                pointcloud = self._point_cloud(misc.imread(os.path.join(filename, associations[i, 3])), 1)
+            if i > 0:
+                # compute relative transformation matrix
+                relative_trans = np.dot(_inverse_trans(trans_old), trans_new)
+                if drop:
+                    # transform old pointcloud if drop is chosen
+                    transformed_pointcloud = _transform_pointcloud(pointcloud_old, relative_trans)
+                    # transform pointcloud back into (u,v,d)
+                    back = self._backtransform_pointcloud(transformed_pointcloud, 1)
+                    # compute overlap with current image
+                    overlap = _overlap(back, [640, 480])
+                    print overlap
+
+                    if overlap < dynamic_drop:
+                        # set twist, if overlap is smaller than maximal overlap
+                        twist[i] = _trans_to_twist(relative_trans)
+                    else:
+                        delete_list.append(i)
+                else:
+                    twist[i] = _trans_to_twist(relative_trans)
+            if i == 0 or (drop and overlap < dynamic_drop):
+                # set old transformation to new transformation if image is not dropped
+                trans_old = trans_new
+            if drop:
+                # set old pointcloud to new pointcloud
+                pointcloud_old = pointcloud
+
+        if drop:
+            # delete dropped files
+            twist = np.delete(twist, delete_list, 0)
+            rgb_filepaths = np.delete(rgb_filepaths, delete_list, 0)
+            depth_filepaths = np.delete(depth_filepaths, delete_list, 0)
+
+        # set dataset length
+        dataset_length = twist.shape[0]
+        # take dataset length if it is smaller than sequence length
+        sequence_length = np.min([sequence_length, dataset_length])
+
+        # choose start point randomly
+        start_point = 0
+        if dataset_length > sequence_length:
+            start_point = np.random.randint(0, dataset_length - sequence_length)
+
+        # set output
+        twist = twist[start_point:start_point + sequence_length]
+        rgb_filepaths = rgb_filepaths[start_point:start_point + sequence_length]
+        depth_filepaths = depth_filepaths[start_point:start_point + sequence_length]
+
+        self.logger.info('The size of dataset:{} is {}'.format(filename, twist.shape[0]))
+
+        return twist, rgb_filepaths, depth_filepaths
 
 
 class SimpleInputProvider:

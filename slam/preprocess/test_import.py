@@ -192,6 +192,8 @@ def _get_data(associations, groundtruth, sequence_length, dynamic_drop=0.0, stat
     # check if dynamic drop is chosen
     drop = 0.0 < dynamic_drop <= 1.0
 
+    delete_list = []
+
     for i in range(dataset_length):
         # get quaternion
         quat = groundtruth[:, 1:][_find_label(groundtruth[:, 0], associations[i, 0])].astype(np.float32)
@@ -216,9 +218,7 @@ def _get_data(associations, groundtruth, sequence_length, dynamic_drop=0.0, stat
                     # set twist, if overlap is smaller than maximal overlap
                     twist[i] = _trans_to_twist(relative_trans)
                 else:
-                    twist[i] = None
-                    rgb_filepaths[i] = None
-                    depth_filepaths[i] = None
+                    delete_list.append(i)
             else:
                 twist[i] = _trans_to_twist(relative_trans)
         if i == 0 or (drop and overlap < dynamic_drop):
@@ -229,10 +229,9 @@ def _get_data(associations, groundtruth, sequence_length, dynamic_drop=0.0, stat
             pointcloud_old = pointcloud
 
     if drop:
-        twist = [x for x in twist if x != None]
-        print twist
-        # rgb_filepaths = rgb_filepaths[np.all(rgb_filepaths != 0.0, 0)]
-        # depth_filepaths = depth_filepaths[np.all(depth_filepaths != 0.0, 0)]
+        twist = np.delete(twist, delete_list, 0)
+        rgb_filepaths = np.delete(rgb_filepaths, delete_list, 0)
+        depth_filepaths = np.delete(depth_filepaths, delete_list, 0)
 
     dataset_length = twist.shape[0]
     sequence_length = np.min([sequence_length, dataset_length])
@@ -248,7 +247,7 @@ def _get_data(associations, groundtruth, sequence_length, dynamic_drop=0.0, stat
 
 
 # folder, where the datasets are stored
-path = "/home/aw/PycharmProjects/data/"
+path = "/usr/data/rgbd_datasets/tum_rgbd_benchmark/"
 
 # Datasets as a List of strings
 datasets = ["freiburg1_rpy", "freiburg1_xyz"]
@@ -274,7 +273,7 @@ groundtruth = np.loadtxt(os.path.join(filename, "groundtruth.txt"), dtype="str",
 
 sequence_length = 200
 
-twist, rgb_filepaths, depth_filepaths = _get_data(associations, groundtruth, sequence_length, dynamic_drop=0.9)
+twist, rgb_filepaths, depth_filepaths = _get_data(associations, groundtruth, sequence_length)
 
 dataset_length = twist.shape[0]
 
