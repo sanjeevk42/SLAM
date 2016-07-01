@@ -107,19 +107,13 @@ def _transform_pointcloud(pointcloud, trans):
         return np.dot(pointcloud, transform[0:3, 0:3]) + transform[0:3, 3]
 
 
-def _overlap(pointcloud_ref, pointcloud):
-    max_x = np.max(pointcloud_ref[:, 0])
-    max_y = np.max(pointcloud_ref[:, 1])
-    max_z = np.max(pointcloud_ref[:, 2])
-    min_x = np.min(pointcloud_ref[:, 0])
-    min_y = np.min(pointcloud_ref[:, 1])
-    min_z = np.min(pointcloud_ref[:, 2])
+def _overlap(backtransform):
+    dim = [224.0, 224.0]
     c = 0.0
-    for i in range(pointcloud.shape[0]):
-        if pointcloud[i, 0] > max_x or pointcloud[i, 0] < min_x or pointcloud[i, 1] > max_y or \
-                        pointcloud[i, 1] < min_y or pointcloud[i, 2] > max_z or pointcloud[i, 2] < min_z:
+    for i in range(backtransform.shape[0]):
+        if dim[0] >= backtransform[i, 0] >= 0 and dim[1] >= backtransform[i, 1] >= 0:
             c += 1
-    return (pointcloud.shape[0] - c) / pointcloud.shape[0]
+    return c / backtransform.shape[0]
 
 
 def _find_label(groundtruth, timestamp):
@@ -257,25 +251,12 @@ class QueuedInputProvider:
                 pointcloud[u * v, 1] = (v - self.CY[dataset_int - 1]) * pointcloud[u * v, 2] / self.FY[dataset_int - 1]
         return pointcloud[np.all(pointcloud != 0.0, 1)]
 
-
-    def _transform_pointcloud(self, pointcloud, trans):
-        transformed_pointcloud = np.matrix(pointcloud) * np.transpose(np.matrix(trans[0:3, 0:3])) + np.transpose(trans[0:3, 3:4])
-        return transformed_pointcloud
-
-
-    def _overlap(self, pointcloud_ref, pointcloud):
-        max_x = np.max(pointcloud_ref[:, 0])
-        max_y = np.max(pointcloud_ref[:, 1])
-        max_z = np.max(pointcloud_ref[:, 2])
-        min_x = np.min(pointcloud_ref[:, 0])
-        min_y = np.min(pointcloud_ref[:, 1])
-        min_z = np.min(pointcloud_ref[:, 2])
-        c = 0.0
-        for i in range(pointcloud.shape[0]):
-            if pointcloud[i, 0] > max_x or pointcloud[i, 0] < min_x or pointcloud[i, 1] > max_y or \
-                            pointcloud[i, 1] < min_y or pointcloud[i, 2] > max_z or pointcloud[i, 2] < min_z:
-                c += 1
-        return (pointcloud.shape[0] - c) / pointcloud.shape[0]
+    def _backtransform_pointcloud(self, pointcloud, dataset_int):
+        uvd = np.zeros(pointcloud.shape)
+        uvd[:, 2] = pointcloud[:, 2]
+        uvd[:, 0] = pointcloud[:, 0] * self.FX[dataset_int-1] / uvd[:, 2] + self.CX[dataset_int-1]
+        uvd[:, 1] = pointcloud[:, 1] * self.FY[dataset_int-1] / uvd[:, 2] + self.CY[dataset_int-1]
+        return uvd
 
 
 class SimpleInputProvider:
