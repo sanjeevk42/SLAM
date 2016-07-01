@@ -20,7 +20,7 @@ class VGG16Model:
         self.logger = get_logger()
         self.batch_size = batch_size
         self.total_weights = 0
-        self.initial_params = np.load('resources/VGG_16_4ch.npy').item()
+        self.initial_params = np.load('/usr/prakt/s110/MLCV-SLAM/resources/VGG_16_4ch.npy').item()
         self.initial_params = {key.encode('utf-8'):self.initial_params[key] for key in self.initial_params}
         self.logger.info('Weight keys:{}'.format(self.initial_params.keys()))
         self.epsilon = normalization_epsilon
@@ -38,9 +38,9 @@ class VGG16Model:
             conv3 = self.__add_weight_layer('conv3', conv2, 2, filter_size, 128, 256)
             conv4 = self.__add_weight_layer('conv4', conv3, 3, filter_size, 256, 512)
             conv5 = self.__add_weight_layer('conv5', conv4, 3, filter_size, 512, 512)
-            fc1 = self.__add_conv_layer('fc6-conv', conv5, [7, 7], 512, 4096, padding='VALID')
-            fc2 = self.__add_conv_layer('fc7-conv', fc1, [1, 1], 4096, 4096)
-            fc3 = self.__add_conv_layer('fc8-conv', fc2, [1, 1], 4096, self.output_dim, should_init_wb=False)
+            fc1 = self.__add_conv_layer('fc6-conv', conv5, [7, 7], 512, 4096, padding='VALID', is_conv_layer=False)
+            fc2 = self.__add_conv_layer('fc7-conv', fc1, [1, 1], 4096, 4096, is_conv_layer=False)
+            fc3 = self.__add_conv_layer('fc8-conv', fc2, [1, 1], 4096, self.output_dim, should_init_wb=False, is_conv_layer=False)
             
             self.output_layer = tf.squeeze(fc3, squeeze_dims=[1 , 2])
             
@@ -75,9 +75,10 @@ class VGG16Model:
     """
     Adds a convolution layer on top of layer_input with filter equal to filter_size. 
     Returns the output tensor by applying RLU activations.
+    is_conv_layer - The calculation of the momentum and mean is different
     """
     def __add_conv_layer(self, scope_name, layer_input, filter_size, input_channels,
-                         output_channels, padding='SAME', should_init_wb=True):
+                         output_channels, padding='SAME', should_init_wb=True, is_conv_layer=True):
         with tf.variable_scope(scope_name):
             weights_shape = filter_size + [input_channels, output_channels]
             initial_weights, initial_bias = self.__get_init_params(scope_name, should_init_wb)
@@ -89,8 +90,12 @@ class VGG16Model:
                                             initializer=initial_bias)
             conv = tf.nn.conv2d(layer_input, conv_weights,
                                     strides=[1 , 1 , 1, 1], padding=padding)
+
             # add batch normalization layer
-            batch_mean, batch_var = tf.nn.moments(conv, [0], keep_dims=False)
+            if is_conv_layer == True:
+                batch_mean, batch_var = tf.nn.moments(conv, axes=[0, 1, 2], keep_dims=False)
+            else:
+                batch_mean, batch_var = tf.nn.moments(conv, axes=[0], keep_dims=False)
             scale = tf.Variable(tf.ones([output_channels]))
             beta = tf.Variable(tf.zeros([output_channels]))
             conv_normalized = tf.nn.batch_normalization(conv, batch_mean, batch_var, beta, scale, self.epsilon)
@@ -150,11 +155,12 @@ if __name__ == '__main__':
     epoch = config_provider.epoch()
     batch_size = config_provider.batch_size()
     sequence_length = config_provider.sequence_length()
+    normalization_epsilon = config_provider.normalization_epsilon()
     
     rgbd_input_batch = tf.placeholder(tf.float32, [batch_size, img_h, img_w, 4])
     groundtruth_batch = tf.placeholder(tf.float32, [batch_size, 6])
     
-    vgg_model = VGG16Model(batch_size, rgbd_input_batch, 6)
+    vgg_model = VGG16Model(batch_size, rgbd_input_batch, 6, normalization_epsilon)
     vgg_model.build_graph()
     
     loss_weight = tf.placeholder(tf.float32, [6, 6])
