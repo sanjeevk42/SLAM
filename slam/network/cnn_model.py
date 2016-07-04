@@ -86,8 +86,6 @@ class VGG16Model:
             self.logger.info('Weight shape:{} for scope:{}'.format(weights_shape, tf.get_variable_scope().name))
             conv_weights = self.__get_variable('initial_params', weights_shape, tf.float32,
                                             initializer=initial_weights)
-            conv_biases = self.__get_variable('biases', [output_channels], tf.float32,
-                                            initializer=initial_bias)
             conv = tf.nn.conv2d(layer_input, conv_weights,
                                     strides=[1 , 1 , 1, 1], padding=padding)
 
@@ -99,7 +97,7 @@ class VGG16Model:
             scale = tf.Variable(tf.ones([output_channels]))
             beta = tf.Variable(tf.zeros([output_channels]))
             conv_normalized = tf.nn.batch_normalization(conv, batch_mean, batch_var, beta, scale, self.epsilon)
-            return tf.nn.relu(tf.nn.bias_add(conv_normalized, conv_biases))
+            return tf.nn.relu(conv_normalized)
     
     """
     Reads the initial values of weights and biases. 
