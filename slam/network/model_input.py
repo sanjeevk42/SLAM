@@ -228,8 +228,8 @@ class QueuedInputProvider:
     def _backtransform_pointcloud(self, pointcloud, dataset_int):
         uvd = np.zeros(pointcloud.shape)
         uvd[:, 2] = pointcloud[:, 2]
-        uvd[:, 0] = pointcloud[:, 0] * self.FX[dataset_int-1] / uvd[:, 2] + self.CX[dataset_int-1]
-        uvd[:, 1] = pointcloud[:, 1] * self.FY[dataset_int-1] / uvd[:, 2] + self.CY[dataset_int-1]
+        uvd[:, 0] = pointcloud[:, 0] * self.FX[dataset_int - 1] / uvd[:, 2] + self.CX[dataset_int - 1]
+        uvd[:, 1] = pointcloud[:, 1] * self.FY[dataset_int - 1] / uvd[:, 2] + self.CY[dataset_int - 1]
         return uvd
 
     """
@@ -381,7 +381,7 @@ class SimpleInputProvider:
                 quat = groundtruth[:, 1:][_find_label(groundtruth[:, 0], associations[i, 0])].astype(np.float32)
                 trans_new = _quat_to_transformation(quat)
                 if i > 0:
-                    twist[i] = _trans_to_twist(_inverse_trans(trans_old) * trans_new)
+                    twist[i] = _trans_to_twist(trans_new)
                 else:
                     twist[i] = np.zeros(6)
                 trans_old = trans_new

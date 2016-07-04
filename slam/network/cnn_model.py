@@ -148,7 +148,8 @@ class VGG16Model:
 if __name__ == '__main__':
     img_h = 224
     img_w = 224
-    LOG_DIR = '/usr/prakt/s085/logs' 
+    LOG_DIR = '/work/slam-lstm/logs/titan_cnn' 
+    LEARNED_WEIGHTS_FILENAME = '/work/slam-lstm/checkpoint/titan_cnn/learned_weights.ckpt'
     
     logger = get_logger()    
     config_provider = get_config_provider()
@@ -173,12 +174,13 @@ if __name__ == '__main__':
     
     merged_summary = tf.merge_all_summaries()
     summary_writer = tf.train.SummaryWriter(LOG_DIR, session.graph)
+    saver = tf.train.Saver()
     
     for step in xrange(epoch):
         logger.info('Executing step:{}'.format(step))
         next_batch = input_provider.sequence_batch_itr(sequence_length, batch_size)
         for i, sequence_batch in enumerate(next_batch):
-            logger.info('Step:{} Frame:{}'.format(step, i))
+            logger.info('Epoc:{} Frame:{}'.format(step, i))
             logger.debug('Using rgb files:{}, depth files:{}, groundtruths:{} in current batch'.format(sequence_batch.rgb_filenames,
                                                                          sequence_batch.depth_filenames, sequence_batch.groundtruths))
             loss_weight_matrix = np.zeros([6, 6]) if i == 0 else np.identity(6)
@@ -187,6 +189,10 @@ if __name__ == '__main__':
             loss_value = result[1]
             logger.info('Loss :{}'.format(loss_value))
         summary_writer.add_summary(result[2], step)
-        
+        if step % 10 == 0:
+            logger.info('Saving weights.')
+            saver.save(session, LEARNED_WEIGHTS_FILENAME)
+            
+        logger.info('epoc:{}, loss:{}'.format(step, loss_value))
     session.close()
 
