@@ -4,7 +4,7 @@ import json
 class ModelConfigProvider:
     
     def __init__(self):
-        with open('../resources/model.config') as f:
+        with open('resources/model.config') as f:
             contents = f.read()
         self.config = json.loads(contents, encoding='utf-8')
     

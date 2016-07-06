@@ -3,8 +3,7 @@ This constructs the graph for VGG16 CNN model.
 """
 
 import numpy as np
-from slam.network.model_input import get_queued_input_provider, \
-    get_simple_input_provider
+from slam.network.model_input import get_simple_input_provider
 from slam.utils.logging_utils import get_logger
 from slam.utils.time_utils import time_it
 import tensorflow as tf
@@ -14,13 +13,12 @@ from slam.network.model_config import get_config_provider
 class VGG16Model:
     
     def __init__(self, batch_size, rgbd_input_batch, output_dim, normalization_epsilon):
-        self.input_provider = get_queued_input_provider()
         self.rgbd_input_batch = rgbd_input_batch
         self.output_dim = output_dim
         self.logger = get_logger()
         self.batch_size = batch_size
         self.total_weights = 0
-        self.initial_params = np.load('/usr/prakt/s110/MLCV-SLAM/resources/VGG_16_4ch.npy').item()
+        self.initial_params = np.load('resources/VGG_16_4ch.npy').item()
         self.initial_params = {key.encode('utf-8'):self.initial_params[key] for key in self.initial_params}
         self.logger.info('Weight keys:{}'.format(self.initial_params.keys()))
         self.epsilon = normalization_epsilon
@@ -40,7 +38,8 @@ class VGG16Model:
             conv5 = self.__add_weight_layer('conv5', conv4, 3, filter_size, 512, 512)
             fc1 = self.__add_conv_layer('fc6-conv', conv5, [7, 7], 512, 4096, padding='VALID', is_conv_layer=False)
             fc2 = self.__add_conv_layer('fc7-conv', fc1, [1, 1], 4096, 4096, is_conv_layer=False)
-            fc3 = self.__add_conv_layer('fc8-conv', fc2, [1, 1], 4096, self.output_dim, should_init_wb=False, is_conv_layer=False)
+            fc3 = self.__add_conv_layer('fc8-conv', fc2, [1, 1], 4096, self.output_dim, should_init_wb=False,
+                                         is_conv_layer=False, activation='ident', should_normalize=False)
             
             self.output_layer = tf.squeeze(fc3, squeeze_dims=[1 , 2])
             
@@ -78,26 +77,39 @@ class VGG16Model:
     is_conv_layer - The calculation of the momentum and mean is different
     """
     def __add_conv_layer(self, scope_name, layer_input, filter_size, input_channels,
-                         output_channels, padding='SAME', should_init_wb=True, is_conv_layer=True):
+                         output_channels, padding='SAME', should_init_wb=True, is_conv_layer=True, activation='relu',
+                         should_normalize=True):
         with tf.variable_scope(scope_name):
             weights_shape = filter_size + [input_channels, output_channels]
             initial_weights, initial_bias = self.__get_init_params(scope_name, should_init_wb)
             self.total_weights += weights_shape[0] * weights_shape[1] * weights_shape[2] * weights_shape[3]
             self.logger.info('Weight shape:{} for scope:{}'.format(weights_shape, tf.get_variable_scope().name))
-            conv_weights = self.__get_variable('initial_params', weights_shape, tf.float32,
+            conv_weights = self.__get_variable('weights', weights_shape, tf.float32,
                                             initializer=initial_weights)
+            
+            tf.scalar_summary(scope_name + '/weight_sparsity', tf.nn.zero_fraction(conv_weights))
+            tf.histogram_summary(scope_name + '/weights', conv_weights)
+            
+            conv_biases = self.__get_variable('biases', [output_channels], tf.float32,
+                                            initializer=initial_bias)
             conv = tf.nn.conv2d(layer_input, conv_weights,
                                     strides=[1 , 1 , 1, 1], padding=padding)
 
             # add batch normalization layer
-            if is_conv_layer == True:
-                batch_mean, batch_var = tf.nn.moments(conv, axes=[0, 1, 2], keep_dims=False)
+            if should_normalize:
+                if is_conv_layer == True:
+                    batch_mean, batch_var = tf.nn.moments(conv, axes=[0, 1, 2], keep_dims=False)
+                else:
+                    batch_mean, batch_var = tf.nn.moments(conv, axes=[0], keep_dims=False)
+                scale = tf.Variable(tf.ones([output_channels]))
+                beta = tf.Variable(tf.zeros([output_channels]))
+                layer_output = tf.nn.batch_normalization(conv, batch_mean, batch_var, beta, scale, self.epsilon)
             else:
-                batch_mean, batch_var = tf.nn.moments(conv, axes=[0], keep_dims=False)
-            scale = tf.Variable(tf.ones([output_channels]))
-            beta = tf.Variable(tf.zeros([output_channels]))
-            conv_normalized = tf.nn.batch_normalization(conv, batch_mean, batch_var, beta, scale, self.epsilon)
-            return tf.nn.relu(conv_normalized)
+                layer_output = tf.nn.bias_add(conv, conv_biases)
+             
+            layer_output = tf.nn.relu(layer_output) if activation == 'relu' else layer_output   
+            
+            return layer_output
     
     """
     Reads the initial values of weights and biases. 
@@ -108,12 +120,15 @@ class VGG16Model:
             initial_bias = tf.constant_initializer(self.initial_params[scope_name]['biases'])
         else:
             self.logger.warn('No initial weights found for scope:{}. Initializing with random weights.'.format(scope_name))
-            initial_weights = tf.random_normal_initializer()
-            initial_bias = tf.random_normal_initializer()
+            initial_weights = tf.truncated_normal_initializer(stddev=5e-2)
+            initial_bias = tf.truncated_normal_initializer(stddev=5e-2)
         return initial_weights, initial_bias
     
     def add_loss(self, loss_weight, ground_truth):
-        self.loss = tf.reduce_sum(tf.pow(tf.matmul(self.output_layer - ground_truth, loss_weight), 2)) / self.batch_size
+#         self.loss = tf.reduce_sum(tf.pow(tf.matmul(self.output_layer - ground_truth, loss_weight), 2)) / self.batch_size
+        self.loss = tf.nn.l2_loss(self.output_layer - ground_truth, 'l2loss')
+        self.loss = tf.Print(self.loss, [self.output_layer, ground_truth, self.loss],
+                                     'Value of cnn output layer, ground_truth and loss', summarize=6)
         tf.scalar_summary('cnn_loss', self.loss)
         return self.loss
     
@@ -122,8 +137,15 @@ class VGG16Model:
         
         learning_rate = tf.train.exponential_decay(0.01, self.global_step, 5,
                                    0.1, staircase=True)
-        optimizer = tf.train.GradientDescentOptimizer(learning_rate)
+        optimizer = tf.train.AdamOptimizer(learning_rate)
+        
         gradients = optimizer.compute_gradients(self.loss)
+        
+        for grad, var in gradients:
+            if grad is not None:
+                tf.histogram_summary(var.op.name + '/gradients', grad)
+        
+        # gradients = tf.Print([gradients], [gradients], 'The value of gradients:')
         self.apply_gradient_op = optimizer.apply_gradients(gradients, self.global_step)
         return self.apply_gradient_op
         
@@ -146,8 +168,8 @@ class VGG16Model:
 if __name__ == '__main__':
     img_h = 224
     img_w = 224
-    LOG_DIR = '/work/slam-lstm/logs/titan_cnn' 
-    LEARNED_WEIGHTS_FILENAME = '/work/slam-lstm/checkpoint/titan_cnn/learned_weights.ckpt'
+    LOG_DIR = '/home/sanjeev/logs/' 
+    LEARNED_WEIGHTS_FILENAME = 'resources/learned_weights.ckpt'
     
     logger = get_logger()    
     config_provider = get_config_provider()
@@ -156,8 +178,8 @@ if __name__ == '__main__':
     sequence_length = config_provider.sequence_length()
     normalization_epsilon = config_provider.normalization_epsilon()
     
-    rgbd_input_batch = tf.placeholder(tf.float32, [batch_size, img_h, img_w, 4])
-    groundtruth_batch = tf.placeholder(tf.float32, [batch_size, 6])
+    rgbd_input_batch = tf.placeholder(tf.float32, [batch_size, img_h, img_w, 4], name='rgbd_input')
+    groundtruth_batch = tf.placeholder(tf.float32, [batch_size, 6], name='groundtruth')
     
     vgg_model = VGG16Model(batch_size, rgbd_input_batch, 6, normalization_epsilon)
     vgg_model.build_graph()
@@ -166,7 +188,7 @@ if __name__ == '__main__':
     loss = vgg_model.add_loss(loss_weight, groundtruth_batch)
     apply_gradient_op = vgg_model.add_optimizer()
     
-    input_provider = get_simple_input_provider()
+    input_provider = get_simple_input_provider(config_provider.training_filenames)
     session = tf.Session()
     session.run(tf.initialize_all_variables())
     
@@ -176,7 +198,7 @@ if __name__ == '__main__':
     
     for step in xrange(epoch):
         logger.info('Executing step:{}'.format(step))
-        next_batch = input_provider.sequence_batch_itr(sequence_length, batch_size)
+        next_batch = input_provider.complete_seq_iter()
         for i, sequence_batch in enumerate(next_batch):
             logger.info('Epoc:{} Frame:{}'.format(step, i))
             logger.debug('Using rgb files:{}, depth files:{}, groundtruths:{} in current batch'.format(sequence_batch.rgb_filenames,
@@ -186,7 +208,7 @@ if __name__ == '__main__':
                                         groundtruth_batch:sequence_batch.groundtruths, loss_weight:loss_weight_matrix})
             loss_value = result[1]
             logger.info('Loss :{}'.format(loss_value))
-        summary_writer.add_summary(result[2], step)
+            summary_writer.add_summary(result[2], step * i + i)
         if step % 10 == 0:
             logger.info('Saving weights.')
             saver.save(session, LEARNED_WEIGHTS_FILENAME)

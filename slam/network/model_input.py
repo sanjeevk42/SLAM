@@ -11,7 +11,6 @@ from slam.utils.logging_utils import get_logger
 from slam.utils.time_utils import time_it
 import tensorflow as tf
 
-
 def _quat_to_transformation(groundtruth):
     t = groundtruth[0:3]
     q = groundtruth[3:7]
@@ -352,13 +351,13 @@ class SimpleInputProvider:
                     sequence_batch.groundtruths.append(groundtruth)
                     sequence_batch.rgb_filenames.append(rgb_filename)
                     sequence_batch.depth_filenames.append(depth_filename)
-                    self.seqdir_vs_offset[i][1] = offset + 1
+                    self.seqdir_vs_offset[i][1] = offset + 10
                 self.counter += 1
                 return sequence_batch
             else:
                 raise StopIteration()
         
-    BASE_DATA_DIR = '/usr/data/rgbd_datasets/tum_rgbd_benchmark/'
+    BASE_DATA_DIR = '/home/sanjeev/data/'
     
     def __init__(self, filename_provider):
         training_filenames = filename_provider()
@@ -403,6 +402,21 @@ class SimpleInputProvider:
         input_batch = self.SequenceBatchIterator(self, seqdir_vs_offset, sequence_length)
         return input_batch
     
+    
+    """
+    Randomly selects one sequence out of all sequences and returns all frames of the sequence.
+    """
+    def complete_seq_iter(self):
+        random.shuffle(self.sequence_dirs)
+        training_sequences = self.sequence_dirs
+        seq_dir = training_sequences[0]
+        associations = self.seq_dir_map[seq_dir]['associations']
+        total_frames = 50
+        offset = 0
+        seqdir_vs_offset = [[seq_dir, offset]]
+        input_batch = self.SequenceBatchIterator(self, seqdir_vs_offset, total_frames)
+        return input_batch
+    
     def get_rgbd_file(self, dirname, offset):
         associations = self.seq_dir_map[dirname]['associations']
         
@@ -440,8 +454,8 @@ def get_simple_input_provider(filename_provider):
     return SimpleInputProvider(filename_provider)
 
 if __name__ == '__main__':
-    
-    input_batch = get_simple_input_provider().sequence_batch_itr(100, 20)
+    config_provider = get_config_provider()
+    input_batch = get_simple_input_provider(config_provider.training_filenames).complete_seq_iter()
     for i, batch in enumerate(input_batch):
-        print i, 'groundtruth: ', batch[1][0].shape, 'rgbd shape:', batch[0][0].shape
+        print i, 'rgb files: ', batch.rgb_filenames, 'depth files:', batch.depth_filenames
 
