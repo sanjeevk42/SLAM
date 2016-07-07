@@ -357,7 +357,7 @@ class SimpleInputProvider:
             else:
                 raise StopIteration()
         
-    BASE_DATA_DIR = '/home/sanjeev/data/'
+    BASE_DATA_DIR = '/usr/data/rgbd_datasets/tum_rgbd_benchmark/'  # '/home/sanjeev/data/'
     
     def __init__(self, filename_provider):
         training_filenames = filename_provider()
