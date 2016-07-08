@@ -48,7 +48,11 @@ def _trans_to_twist(trans):
     if (np.trace(trans[0:3, 0:3]) - 1) / 2 > 1:
         return np.zeros(6)
 
-    w_abs = np.arccos((np.trace(trans[0:3, 0:3]) - 1) / 2)
+    argument = (np.trace(trans[0:3, 0:3]) - 1) / 2
+    if np.abs(argument) > 1:
+        print "Warning: numerical issue in groundtruth transformation"
+        argument = 1 * argument/np.abs(argument)
+    w_abs = np.arccos(argument)
     w = np.zeros(3)
     w[0] = 1 / (2 * np.sin(w_abs)) * (trans[2, 1] - trans[1, 2]) * w_abs
     w[1] = 1 / (2 * np.sin(w_abs)) * (trans[0, 2] - trans[2, 0]) * w_abs
