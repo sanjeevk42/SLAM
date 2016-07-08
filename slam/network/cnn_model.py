@@ -167,8 +167,8 @@ class VGG16Model:
             return tf.train.AdamOptimizer(learning_rate)
         elif opt == 'GradientDescentOptimizer':
             return tf.train.GradientDescentOptimizer(learning_rate)
-        else:
-            return tf.train.GradientDescentOptimizer(learning_rate)
+        elif opt == 'RMSPropOptimizer':
+            return tf.train.RMSPropOptimizer(learning_rate)
     
     """
     Start training the model.
