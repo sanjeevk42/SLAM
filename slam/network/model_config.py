@@ -34,7 +34,12 @@ class ModelConfigProvider:
 
     def  normalization_epsilon(self):
         return self.config['train']['model']['normalization_epsilon']
-
+    
+    def optimizer(self):
+        return self.config['train']['model']['optimizer']
+    
+    def base_log_dir(self):
+        return self.config['train']['model']['base_log_dir']
 
 config_provider = ModelConfigProvider()
 

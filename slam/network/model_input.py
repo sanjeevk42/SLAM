@@ -351,11 +351,12 @@ class SimpleInputProvider:
                     offset = ele[1]
                     rgb_filename, depth_filename, rgbd_file = self.input_provider.get_rgbd_file(seqdir, offset)
                     groundtruth = self.input_provider.get_ground_truth(seqdir, offset)
+                    
                     sequence_batch.rgbd_images.append(rgbd_file)
                     sequence_batch.groundtruths.append(groundtruth)
                     sequence_batch.rgb_filenames.append(rgb_filename)
                     sequence_batch.depth_filenames.append(depth_filename)
-                    self.seqdir_vs_offset[i][1] = offset + 10
+                    self.seqdir_vs_offset[i][1] = offset + 1
                 self.counter += 1
                 return sequence_batch
             else:
@@ -415,9 +416,8 @@ class SimpleInputProvider:
         training_sequences = self.sequence_dirs
         seq_dir = training_sequences[0]
         associations = self.seq_dir_map[seq_dir]['associations']
-        total_frames = 50
-        offset = 0
-        seqdir_vs_offset = [[seq_dir, offset]]
+        total_frames = len(associations)
+        seqdir_vs_offset = [[seq_dir, 0]]
         input_batch = self.SequenceBatchIterator(self, seqdir_vs_offset, total_frames)
         return input_batch
     

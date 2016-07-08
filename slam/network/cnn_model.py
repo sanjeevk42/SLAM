@@ -2,12 +2,14 @@
 This constructs the graph for VGG16 CNN model.
 """
 
+import os
+
 import numpy as np
+from slam.network.model_config import get_config_provider
 from slam.network.model_input import get_simple_input_provider
 from slam.utils.logging_utils import get_logger
 from slam.utils.time_utils import time_it
 import tensorflow as tf
-from slam.network.model_config import get_config_provider
 
 
 class VGG16Model:
@@ -146,8 +148,8 @@ class VGG16Model:
         
         learning_rate = tf.train.exponential_decay(0.01, self.global_step, 5,
                                    0.1, staircase=True)
-        optimizer = tf.train.AdamOptimizer(learning_rate)
         
+        optimizer = self.get_optimizer(learning_rate)
         gradients = optimizer.compute_gradients(self.loss)
         
         for grad, var in gradients:
@@ -158,6 +160,16 @@ class VGG16Model:
         self.apply_gradient_op = optimizer.apply_gradients(gradients, self.global_step)
         return self.apply_gradient_op
         
+    def get_optimizer(self, learning_rate):
+        config_provider = get_config_provider()
+        opt = config_provider.optimizer()
+        if opt == 'AdamOptimizer':
+            return tf.train.AdamOptimizer(learning_rate)
+        elif opt == 'GradientDescentOptimizer':
+            return tf.train.GradientDescentOptimizer(learning_rate)
+        else:
+            return tf.train.GradientDescentOptimizer(learning_rate)
+    
     """
     Start training the model.
     """
@@ -177,11 +189,14 @@ class VGG16Model:
 if __name__ == '__main__':
     img_h = 224
     img_w = 224
-    LOG_DIR = '/home/sanjeev/logs/' 
-    LEARNED_WEIGHTS_FILENAME = 'resources/learned_weights.ckpt'
     
     logger = get_logger()    
     config_provider = get_config_provider()
+
+    base_dir = config_provider.base_log_dir()
+    LOG_DIR = os.path.join(base_dir, 'logs/')  
+    LEARNED_WEIGHTS_FILENAME = os.path.join(base_dir, 'checkpoints/learned_weights.ckpt')
+    
     epoch = config_provider.epoch()
     batch_size = config_provider.batch_size()
     sequence_length = config_provider.sequence_length()
