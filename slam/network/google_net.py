@@ -7,6 +7,10 @@ import tensorflow as tf
 
 class GoogleNet(Network):
     
+    def __init__(self, inputs, output_dim, trainable=True):
+        self.output_dim = output_dim
+        super(GoogleNet, self).__init__(inputs, trainable)
+    
     def setup(self):
         (self.feed('data')
              .conv(7, 7, 64, 2, 2, name='conv1_7x7_s2')
@@ -113,7 +117,7 @@ class GoogleNet(Network):
              .conv(1, 1, 128, 1, 1, name='inception_4b_conv1x1')
              .fc(1024, name='inception_4b_fc1')
              .fc(1024, name='inception_4b_fc2')
-             .fc(7, name='output1', relu=False))
+             .fc(self.output_dim, name='output1', relu=False))
         
         (self.feed('inception_4c_1x1',
                    'inception_4c_3x3',
@@ -159,7 +163,7 @@ class GoogleNet(Network):
              .conv(1, 1, 128, 1, 1, name='inception_4d_conv1x1')
              .fc(1024, name='inception_4d_fc1')
              .fc(1024, name='inception_4d_fc2')
-             .fc(7, name='output2', relu=False))
+             .fc(self.output_dim, name='output2', relu=False))
         
         (self.feed('inception_4e_1x1',
                    'inception_4e_3x3',
@@ -208,7 +212,7 @@ class GoogleNet(Network):
              .avg_pool(7, 7, 1, 1, padding='VALID', name='pool5_7x7_s1')
              .fc(1024, relu=False, name='inception_5b_fc1')
              .fc(1024, relu=False, name='inception_5b_fc2')
-             .fc(7, relu=False, name='output3'))
+             .fc(self.output_dim, relu=False, name='output3'))
     
     def add_loss(self, groundtruth):
         output1, output2, output3 = self.layers['output1'], self.layers['output2'], self.layers['output3']
@@ -219,7 +223,20 @@ class GoogleNet(Network):
         self.total_loss = 0.3 * loss1 + 0.3 * loss2 + loss3
         tf.scalar_summary('total_loss', self.total_loss)
         return self.total_loss
-        
+    
+    def add_l2_loss(self, groundtruth):
+        output1, output2, output3 = self.layers['output1'], self.layers['output2'], self.layers['output3']
+        loss1, loss2, loss3 = self.get_l2_loss(output1, groundtruth), self.get_l2_loss(output2, groundtruth), self.get_l2_loss(output3, groundtruth)
+        tf.scalar_summary('loss1', loss1)
+        tf.scalar_summary('loss2', loss2)
+        tf.scalar_summary('loss3', loss3)
+        self.total_loss = 0.3 * loss1 + 0.3 * loss2 + loss3
+        tf.scalar_summary('total_loss', self.total_loss)
+        return self.total_loss
+    
+    def get_l2_loss(self, output, groundtruth):
+        return tf.reduce_sum((output - groundtruth) ** 2)
+    
     def get_loss(self, output, groundtruth):
         beta = 1100
         x = groundtruth[:, :3]
@@ -229,6 +246,7 @@ class GoogleNet(Network):
         loss = tf.reduce_sum((xp - x) ** 2) + beta * tf.reduce_sum((qp - q) ** 2)
         loss = tf.Print(loss, [output, groundtruth, loss], 'output, groundtruth and loss:', summarize=20)
         return loss
+    
         
     def add_optimizer(self):
         global_step = tf.Variable(0, trainable=False)
