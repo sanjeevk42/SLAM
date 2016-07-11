@@ -34,7 +34,7 @@ class VGG16Model:
         with tf.variable_scope('vgg16'):
             
             filter_size = [3, 3]
-            input_channels = self.rgbd_input_batch.get_shape()[3]
+            input_channels = self.network_input.get_shape()[3].value
             with tf.variable_scope('conv1'):
                 conv1_1 = self.add_conv_layer('conv1_1', self.network_input, filter_size, input_channels, 64, should_init_wb=False)
                 conv1_2 = self.add_conv_layer('conv1_2', conv1_1, filter_size, 64, 64)
