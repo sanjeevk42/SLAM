@@ -258,7 +258,7 @@ class QueuedInputProvider:
         drop = 0.0 < dynamic_drop <= 1.0
 
         delete_list = []
-
+        pointcloud_old = None
         for i in range(dataset_length):
             # get quaternion
             quat = groundtruth[:, 1:][_find_label(groundtruth[:, 0], associations[i, 0])].astype(np.float32)
@@ -449,7 +449,64 @@ class SimpleInputProvider:
     def get_ground_truth(self, dirname, offset):
         groundtruth = self.seq_dir_map[dirname]['relpos'][offset, :]
         return groundtruth
-            
+
+class PoseNetInputProvider:
+    
+    BASE_DIR = '/usr/data/cvpr_shared/lingni/cambridge_pose_dataset/KingsCollege/'
+    
+    def __init__(self):
+        self.sequence_info = np.loadtxt(os.path.join(self.BASE_DIR, 'dataset_train.txt'), dtype="str", unpack=False)
+        
+    class PoseNetBatch:pass
+    
+    class PoseNetIterator:
+        
+        def __init__(self, sequence_info, batch_size):
+            self.sequence_info = sequence_info
+            self.index = 0
+            self.batch_size = batch_size
+        
+        def __iter__(self):
+            return self
+        
+        def next(self):
+            if self.index + self.batch_size < len(self.sequence_info):
+                batch_info = self.sequence_info[self.index:self.index + self.batch_size]
+                filenames = [os.path.join(PoseNetInputProvider.BASE_DIR, filename) for filename in batch_info[:, 0]]
+                rgb_files = map(read_rgb_image, filenames)
+                groundtruths = batch_info[:, 1:]
+                batch = PoseNetInputProvider.PoseNetBatch()
+                batch.rgb_files = rgb_files
+                batch.groundtruths = groundtruths
+                batch.rgb_filenames = filenames
+                self.index += self.batch_size
+                return batch
+            else:
+                raise StopIteration()
+    
+    def sequence_batch_itr(self, batch_size):
+        return PoseNetInputProvider.PoseNetIterator(self.sequence_info, batch_size)
+
+def read_rgb_image(filepath):
+    rgb_img = ndimage.imread(filepath)
+    width = height = 224
+    img_width = rgb_img.shape[1]
+    img_height = rgb_img.shape[0]
+
+    # scale such that smaller dimension is 256
+    if img_width < img_height:
+        factor = 256.0/img_width
+    else:
+        factor = 256.0/img_height
+    rgb_img = transform.rescale(rgb_img, factor)
+
+    # crop randomly
+    width_start = np.random.randint(0, rgb_img.shape[1]-width)
+    height_start = np.random.randint(0, rgb_img.shape[0]-height)
+
+    rgb_img = rgb_img[height_start:height_start+height, width_start:width_start+width]
+    return rgb_img
+
 queued_input_provider = QueuedInputProvider()
 def get_queued_input_provider():
     return queued_input_provider
