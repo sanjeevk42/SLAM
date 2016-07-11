@@ -34,8 +34,9 @@ class VGG16Model:
         with tf.variable_scope('vgg16'):
             
             filter_size = [3, 3]
+            input_channels = self.rgbd_input_batch.get_shape()[3]
             with tf.variable_scope('conv1'):
-                conv1_1 = self.add_conv_layer('conv1_1', self.network_input, filter_size, 4, 64, should_init_wb=False)
+                conv1_1 = self.add_conv_layer('conv1_1', self.network_input, filter_size, input_channels, 64, should_init_wb=False)
                 conv1_2 = self.add_conv_layer('conv1_2', conv1_1, filter_size, 64, 64)
                 conv1_out = tf.nn.max_pool(conv1_2, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='VALID')
             
@@ -62,7 +63,7 @@ class VGG16Model:
                 conv5_out = tf.nn.max_pool(conv5_3, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='VALID')
                 
             
-            conv_out = tf.reshape(conv5_out, [batch_size, 7 * 7 * 512])
+            conv_out = tf.reshape(conv5_out, [self.batch_size, 7 * 7 * 512])
             
             fc1 = self.add_fc_layer('fc6-conv', conv_out, 7 * 7 * 512, 4096)
             fc2 = self.add_fc_layer('fc7-conv', fc1, 4096, 4096)
@@ -155,7 +156,6 @@ class VGG16Model:
         for grad, var in gradients:
             if grad is not None:
                 tf.histogram_summary(var.op.name + '/gradients', grad)
-        
         # gradients = tf.Print([gradients], [gradients], 'The value of gradients:')
         self.apply_gradient_op = optimizer.apply_gradients(gradients, self.global_step)
         return self.apply_gradient_op
@@ -219,7 +219,6 @@ if __name__ == '__main__':
     merged_summary = tf.merge_all_summaries()
     summary_writer = tf.train.SummaryWriter(LOG_DIR, session.graph)
     saver = tf.train.Saver()
-    
     for step in xrange(epoch):
         logger.info('Executing step:{}'.format(step))
         next_batch = input_provider.complete_seq_iter()
