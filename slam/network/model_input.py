@@ -51,7 +51,7 @@ def _trans_to_twist(trans):
     argument = (np.trace(trans[0:3, 0:3]) - 1) / 2
     if np.abs(argument) > 1:
         print "Warning: numerical issue in groundtruth transformation"
-        argument = 1 * argument/np.abs(argument)
+        argument = 1 * argument / np.abs(argument)
     w_abs = np.arccos(argument)
     w = np.zeros(3)
     w[0] = 1 / (2 * np.sin(w_abs)) * (trans[2, 1] - trans[1, 2]) * w_abs
@@ -473,8 +473,9 @@ class PoseNetInputProvider:
             if self.index + self.batch_size < len(self.sequence_info):
                 batch_info = self.sequence_info[self.index:self.index + self.batch_size]
                 filenames = [os.path.join(PoseNetInputProvider.BASE_DIR, filename) for filename in batch_info[:, 0]]
-                self.mean = get_mean(filenames)
-                rgb_files = map(self.read_rgb_image, filenames)
+                rgb_files = map(read_rgb_image, filenames)
+                mean = get_mean(rgb_files)
+                rgb_files = [rgb_file - mean for rgb_file in rgb_files]
                 groundtruths = batch_info[:, 1:]
                 batch = PoseNetInputProvider.PoseNetBatch()
                 batch.rgb_files = rgb_files
@@ -488,32 +489,31 @@ class PoseNetInputProvider:
     def sequence_batch_itr(self, batch_size):
         return PoseNetInputProvider.PoseNetIterator(self.sequence_info, batch_size)
 
-    def read_rgb_image(self, filepath):
-        rgb_img = ndimage.imread(filepath)
-        width = height = 224
-        img_width = rgb_img.shape[1]
-        img_height = rgb_img.shape[0]
+def read_rgb_image(filepath):
+    rgb_img = ndimage.imread(filepath)
+    width = height = 224
+    img_width = rgb_img.shape[1]
+    img_height = rgb_img.shape[0]
 
-        # scale such that smaller dimension is 256
-        if img_width < img_height:
-            factor = 256.0/img_width
-        else:
-            factor = 256.0/img_height
-        rgb_img = transform.rescale(rgb_img, factor)
+    # scale such that smaller dimension is 256
+    if img_width < img_height:
+        factor = 256.0 / img_width
+    else:
+        factor = 256.0 / img_height
+    rgb_img = transform.rescale(rgb_img, factor, preserve_range=True)
 
-        # crop randomly
-        width_start = np.random.randint(0, rgb_img.shape[1]-width)
-        height_start = np.random.randint(0, rgb_img.shape[0]-height)
+    # crop randomly
+    width_start = np.random.randint(0, rgb_img.shape[1] - width)
+    height_start = np.random.randint(0, rgb_img.shape[0] - height)
 
-        rgb_img = rgb_img[height_start:height_start+height, width_start:width_start+width]
-        return rgb_img-self.mean
+    rgb_img = rgb_img[height_start:height_start + height, width_start:width_start + width]
+    return rgb_img
 
-def get_mean(filenames):
+def get_mean(rgb_images):
     sum = np.zeros(3)
-    for i in range(filenames.shape[0]):
-        rgb_img = ndimage.imread(filenames[i])
-        sum += np.mean(np.mean(rgb_img, axis=0), axis=0)
-    mean = sum / filenames.shape[0]
+    for rgb_image in rgb_images:
+        sum += np.mean(np.mean(rgb_image, axis=0), axis=0)
+    mean = sum / len(rgb_images)
     return mean
 
 queued_input_provider = QueuedInputProvider()
@@ -524,8 +524,7 @@ def get_simple_input_provider(filename_provider):
     return SimpleInputProvider(filename_provider)
 
 if __name__ == '__main__':
-    config_provider = get_config_provider()
-    input_batch = get_simple_input_provider(config_provider.training_filenames).complete_seq_iter()
+    input_batch = PoseNetInputProvider().sequence_batch_itr(10)
     for i, batch in enumerate(input_batch):
-        print i, 'rgb files: ', batch.rgb_filenames, 'depth files:', batch.depth_filenames
+        print i, 'rgb files: ', batch.rgb_filenames
 

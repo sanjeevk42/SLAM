@@ -18,10 +18,10 @@ def add_posenet_loss(output, groundtruth):
     xp = output[:, :3]
     q = groundtruth[:, 3:]
     qp = output[:, 3:]
-    q_norm = q / tf.sqrt(q ** 2)
-    #loss = tf.reduce_sum(xp - x) + 0.5 * tf.reduce_sum(qp - q_norm)
-    loss = tf.add(tf.reduce_sum(xp - x) + 0.5 * tf.reduce_sum(qp - q_norm))
-    loss = tf.Print(loss, [q, q_norm], 'Value of q and qnorm:', summarize=20)
+    # loss = tf.reduce_sum(xp - x) + 0.5 * tf.reduce_sum(qp - q_norm)
+    loss = tf.add(tf.reduce_sum((xp - x) ** 2) , 1100 * tf.reduce_sum((qp - q) ** 2))
+    loss = tf.Print(loss, [output, groundtruth, loss ], 'output, groundtruth, loss:', summarize=20)
+    tf.scalar_summary('posenet_loss', loss)
     return loss
 
 def add_optimizer(loss):
