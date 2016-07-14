@@ -473,7 +473,8 @@ class PoseNetInputProvider:
             if self.index + self.batch_size < len(self.sequence_info):
                 batch_info = self.sequence_info[self.index:self.index + self.batch_size]
                 filenames = [os.path.join(PoseNetInputProvider.BASE_DIR, filename) for filename in batch_info[:, 0]]
-                rgb_files = map(read_rgb_image, filenames)
+                self.mean = get_mean(filenames)
+                rgb_files = map(self.read_rgb_image, filenames)
                 groundtruths = batch_info[:, 1:]
                 batch = PoseNetInputProvider.PoseNetBatch()
                 batch.rgb_files = rgb_files
@@ -487,25 +488,33 @@ class PoseNetInputProvider:
     def sequence_batch_itr(self, batch_size):
         return PoseNetInputProvider.PoseNetIterator(self.sequence_info, batch_size)
 
-def read_rgb_image(filepath):
-    rgb_img = ndimage.imread(filepath)
-    width = height = 224
-    img_width = rgb_img.shape[1]
-    img_height = rgb_img.shape[0]
+    def read_rgb_image(self, filepath):
+        rgb_img = ndimage.imread(filepath)
+        width = height = 224
+        img_width = rgb_img.shape[1]
+        img_height = rgb_img.shape[0]
 
-    # scale such that smaller dimension is 256
-    if img_width < img_height:
-        factor = 256.0/img_width
-    else:
-        factor = 256.0/img_height
-    rgb_img = transform.rescale(rgb_img, factor)
+        # scale such that smaller dimension is 256
+        if img_width < img_height:
+            factor = 256.0/img_width
+        else:
+            factor = 256.0/img_height
+        rgb_img = transform.rescale(rgb_img, factor)
 
-    # crop randomly
-    width_start = np.random.randint(0, rgb_img.shape[1]-width)
-    height_start = np.random.randint(0, rgb_img.shape[0]-height)
+        # crop randomly
+        width_start = np.random.randint(0, rgb_img.shape[1]-width)
+        height_start = np.random.randint(0, rgb_img.shape[0]-height)
 
-    rgb_img = rgb_img[height_start:height_start+height, width_start:width_start+width]
-    return rgb_img
+        rgb_img = rgb_img[height_start:height_start+height, width_start:width_start+width]
+        return rgb_img-self.mean
+
+def get_mean(filenames):
+    sum = np.zeros(3)
+    for i in range(filenames.shape[0]):
+        rgb_img = ndimage.imread(filenames[i])
+        sum += np.mean(np.mean(rgb_img, axis=0), axis=0)
+    mean = sum / filenames.shape[0]
+    return mean
 
 queued_input_provider = QueuedInputProvider()
 def get_queued_input_provider():
