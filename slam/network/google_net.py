@@ -230,12 +230,14 @@ class GoogleNet(Network):
         tf.scalar_summary('loss1', loss1)
         tf.scalar_summary('loss2', loss2)
         tf.scalar_summary('loss3', loss3)
-        self.total_loss = 0.3 * loss1 + 0.3 * loss2 + loss3
+        #self.total_loss = 0.3 * loss1 + 0.3 * loss2 + loss3
+        self.total_loss = tf.add_n(tf.mul(loss1, 0.3), tf.mul(loss2, 0.3), loss3)
         tf.scalar_summary('total_loss', self.total_loss)
         return self.total_loss
     
     def get_l2_loss(self, output, groundtruth):
-        return tf.reduce_sum((output - groundtruth) ** 2)
+        #return tf.reduce_sum((output - groundtruth) ** 2)
+        return tf.nn.l2_loss((output - groundtruth))
     
     def get_loss(self, output, groundtruth):
         beta = 1100

@@ -27,7 +27,7 @@ if __name__ == '__main__':
     groundtruth_batch = tf.placeholder(tf.float32, [batch_size, 7], name='groundtruth')
     
     google_net = GoogleNet({'data':rgb_input_batch}, 7)
-    loss = google_net.add_loss(groundtruth_batch)
+    loss = google_net.add_l2_loss(groundtruth_batch)
     apply_gradient_op = google_net.add_optimizer()
     
     session = tf.Session()

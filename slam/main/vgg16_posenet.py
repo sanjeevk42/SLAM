@@ -19,7 +19,8 @@ def add_posenet_loss(output, groundtruth):
     q = groundtruth[:, 3:]
     qp = output[:, 3:]
     q_norm = q / tf.sqrt(q ** 2)
-    loss = tf.reduce_sum(xp - x) + 0.5 * tf.reduce_sum(qp - q_norm)
+    #loss = tf.reduce_sum(xp - x) + 0.5 * tf.reduce_sum(qp - q_norm)
+    loss = tf.add(tf.reduce_sum(xp - x) + 0.5 * tf.reduce_sum(qp - q_norm))
     loss = tf.Print(loss, [q, q_norm], 'Value of q and qnorm:', summarize=20)
     return loss
 
