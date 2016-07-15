@@ -357,6 +357,9 @@ class SimpleInputProvider:
                     sequence_batch.rgb_filenames.append(rgb_filename)
                     sequence_batch.depth_filenames.append(depth_filename)
                     self.seqdir_vs_offset[i][1] = offset + 1
+                mean = get_mean(sequence_batch.rgbd_images, channels=4)
+                self.logger.info('Mean for current batch:{}'.format(mean))
+                sequence_batch.rgbd_images = [rgbd_image - mean for rgbd_image in sequence_batch.rgbd_images]
                 self.counter += 1
                 return sequence_batch
             else:
@@ -465,6 +468,7 @@ class PoseNetInputProvider:
             self.sequence_info = sequence_info
             self.index = 0
             self.batch_size = batch_size
+            self.logger = get_logger()
         
         def __iter__(self):
             return self
@@ -475,6 +479,7 @@ class PoseNetInputProvider:
                 filenames = [os.path.join(PoseNetInputProvider.BASE_DIR, filename) for filename in batch_info[:, 0]]
                 rgb_files = map(read_rgb_image, filenames)
                 mean = get_mean(rgb_files)
+                self.logger.info('Mean for current batch:{}'.format(mean))
                 rgb_files = [rgb_file - mean for rgb_file in rgb_files]
                 groundtruths = batch_info[:, 1:]
                 batch = PoseNetInputProvider.PoseNetBatch()
@@ -509,8 +514,8 @@ def read_rgb_image(filepath):
     rgb_img = rgb_img[height_start:height_start + height, width_start:width_start + width]
     return rgb_img
 
-def get_mean(rgb_images):
-    sum = np.zeros(3)
+def get_mean(rgb_images, channels=3):
+    sum = np.zeros(channels)
     for rgb_image in rgb_images:
         sum += np.mean(np.mean(rgb_image, axis=0), axis=0)
     mean = sum / len(rgb_images)
@@ -524,6 +529,8 @@ def get_simple_input_provider(filename_provider):
     return SimpleInputProvider(filename_provider)
 
 if __name__ == '__main__':
+#     config_provider = get_config_provider()
+#     input_batch = SimpleInputProvider(config_provider.training_filenames).sequence_batch_itr(10, 1)
     input_batch = PoseNetInputProvider().sequence_batch_itr(10)
     for i, batch in enumerate(input_batch):
         print i, 'rgb files: ', batch.rgb_filenames
